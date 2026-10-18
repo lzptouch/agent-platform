@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900">
+  <!-- 浅色背景 -->
+  <rect width="1600" height="900" fill="#F5F7FA"/>
+  
+  <!-- 主标题 -->
+  <text x="800" y="120" font-family="'Arial', sans-serif" font-size="70" font-weight="700" fill="#1A365D" text-anchor="middle">新能源车企销售培训助手</text>
+  
+  <!-- 副标题 -->
+  <text x="800" y="180" font-family="'Arial', sans-serif" font-size="36" font-weight="500" fill="#2C5282" text-anchor="middle">赋能销售 · 提升体验 · 增加转化</text>
+  
+  <!-- 分隔线 -->
+  <line x1="300" y1="220" x2="1300" y2="220" stroke="#2C5282" stroke-width="3"/>
+  
+  <!-- 内容区域 -->
+  <g>
+    <!-- 任务目标 -->
+    <text x="300" y="280" font-family="'Arial', sans-serif" font-size="40" font-weight="600" fill="#1A365D">任务目标：</text>
+    <text x="300" y="330" font-family="'Arial', sans-serif" font-size="28" font-weight="400" fill="#2A4365">帮助国内某头部的新能源车企做一个销售培训助手，帮助销售更好的上手进行销售，</text>
+    <text x="300" y="370" font-family="'Arial', sans-serif" font-size="28" font-weight="400" fill="#2A4365">提高销量，作为大模型算法的负责人，负责整个流程的设计和实现。</text>
+    
+    <!-- 基础需求 -->
+    <text x="300" y="440" font-family="'Arial', sans-serif" font-size="40" font-weight="600" fill="#1A365D">基础需求：</text>
+    <text x="300" y="490" font-family="'Arial', sans-serif" font-size="28" font-weight="400" fill="#2A4365">1. 基于本地文档（车的产品介绍的问答）- 帮助销售更好的了解自身产品，包括</text>
+    <text x="320" y="530" font-family="'Arial', sans-serif" font-size="28" font-weight="400" fill="#2A4365">   车辆性能参数、配置选项、优势特点及常见问题解答等详细信息。</text>
+    
+    <text x="300" y="590" font-family="'Arial', sans-serif" font-size="28" font-weight="400" fill="#2A4365">2. 实现联网搜索，销售可以实时获取网络上最新的各类新能源车的相关信息，</text>
+    <text x="320" y="630" font-family="'Arial', sans-serif" font-size="28" font-weight="400" fill="#2A4365">   包括竞品对比、行业动态、政策补贴和用户评价等市场信息。</text>
+    
+    <!-- 进阶需求 -->
+    <text x="300" y="700" font-family="'Arial', sans-serif" font-size="40" font-weight="600" fill="#1A365D">进阶需求：</text>
+    <text x="300" y="750" font-family="'Arial', sans-serif" font-size="28" font-weight="400" fill="#2A4365">深度思考和探索，用户提出一个问题，如何全方位多角度、有说服力、代入感地</text>
+    <text x="300" y="790" font-family="'Arial', sans-serif" font-size="28" font-weight="400" fill="#2A4365">介绍产品，提高销售力。针对不同客户画像，提供个性化的销售话术和方案，</text>
+    <text x="300" y="830" font-family="'Arial', sans-serif" font-size="28" font-weight="400" fill="#2A4365">解决客户疑虑，促进成交转化。</text>
+  </g>
+  
+  <!-- 简化的电动车图标 -->
+  <g transform="translate(1350, 340)">
+    <rect x="-120" y="-80" width="240" height="160" rx="20" ry="20" fill="#EDF2F7" stroke="#2C5282" stroke-width="3"/>
+    <path d="M-80,-20 L-30,-20 C-10,-20 0,-30 10,-40 L40,-40 L50,-20 L80,-20 C90,-20 90,20 80,20 L-80,20 C-90,20 -90,-20 -80,-20 Z" fill="#EDF2F7" stroke="#2C5282" stroke-width="3"/>
+    <circle cx="-40" cy="20" r="20" fill="#EDF2F7" stroke="#2C5282" stroke-width="3"/>
+    <circle cx="50" cy="20" r="20" fill="#EDF2F7" stroke="#2C5282" stroke-width="3"/>
+  </g>
+</svg>

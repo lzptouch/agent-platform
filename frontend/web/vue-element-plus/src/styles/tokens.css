@@ -1,0 +1,83 @@
+/**
+ * 设计 Token（与现有 baseline 保持一致 + 暗色模式）。
+ * 来自 frontend/docs/design-tokens.md。
+ */
+
+:root {
+  --accent:       #4d6bfe;
+  --accent-hover: #3b5bec;
+  --accent-light: #eef2ff;
+
+  --purple: #8b5cf6;  /* mcp */
+  --green:  #22a06b;  /* rag / 成功 */
+  --orange: #d97706;  /* web / 警告 */
+  --teal:   #0ea5b7;  /* plan */
+  --red:    #e5484d;  /* 错误 */
+
+  --bg:             #ffffff;
+  --bg-sidebar:     #f7f8fa;
+  --bg-hover:       #eceef1;
+  --bg-bubble-user: #e3efff;
+  --bg-code:        #f4f5f7;
+
+  --border:        #e5e7eb;
+  --border-strong: #d6d9de;
+
+  --text:        #1f2329;
+  --text-dim:    #8a919e;
+  --text-faint:  #b3b9c2;
+
+  --radius:    14px;
+  --radius-sm: 8px;
+  --radius-lg: 18px;
+  --shadow-sm: 0 1px 2px rgba(15, 17, 21, 0.06);
+  --shadow-md: 0 6px 24px rgba(15, 17, 21, 0.08);
+
+  --font-sans: 'PingFang SC', 'Microsoft YaHei', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Consolas', 'Courier New', monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:             #0f1115;
+    --bg-sidebar:     #161922;
+    --bg-hover:       #1f2330;
+    --bg-bubble-user: #1e2a44;
+    --bg-code:        #1a1d24;
+    --border:         #2a2f3a;
+    --border-strong:  #3a4150;
+    --text:           #e6e8eb;
+    --text-dim:       #8a919e;
+    --text-faint:     #5a6270;
+    --accent-light:   #1e2a44;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body, #app { height: 100%; margin: 0; }
+body {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 滚动条 */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* 工具源标签配色 */
+.src-builtin { color: var(--accent); }
+.src-mcp     { color: var(--purple); }
+.src-rag     { color: var(--green); }
+.src-web     { color: var(--orange); }
+.src-plan    { color: var(--teal); }
+
+.dot-builtin { background: var(--accent); }
+.dot-mcp     { background: var(--purple); }
+.dot-rag     { background: var(--green); }
+.dot-web     { background: var(--orange); }
+.dot-plan    { background: var(--teal); }

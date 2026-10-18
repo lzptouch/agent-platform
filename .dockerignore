@@ -1,0 +1,55 @@
+# =====================================================================
+# 全局构建上下文忽略表
+# 作用：减小 docker build 上下文体积、避免把本机 node_modules / .venv /
+#       运行时数据（milvus.db、日志、上传文件）误打进镜像或泄漏密钥。
+# =====================================================================
+
+# 版本控制 / 编辑器
+**/.git
+**/.gitignore
+**/.gitattributes
+**/.DS_Store
+**/.idea
+**/.vscode
+
+# Python 运行时
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/*.egg-info
+**/.pytest_cache
+**/.venv
+**/venv
+**/site-packages
+
+# Node 运行时（前端依赖由镜像内 npm ci 安装）
+**/node_modules
+**/.npm
+**/dist
+
+# 敏感文件：运行时通过 docker compose env_file 注入，不进镜像
+backend/.env
+.env
+
+# 运行时数据：由 named volume 挂载持久化，不进镜像
+backend/data/outputs
+backend/data/uploads
+backend/data/browser_data
+backend/data/logs
+backend/data/pdf
+backend/data/research
+backend/data/milvus.db
+backend/data/*.db.lock
+backend/data/*.lock
+**/*.log
+
+# 构建无关
+Dockerfile
+Dockerfile.*
+docker-compose.yml
+docker-compose.*.yml
+.dockerignore
+deploy/README.md
+deploy/*.md
+doc
+notebooks

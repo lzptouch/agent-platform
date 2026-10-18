@@ -1,0 +1,346 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1800" width="1400" height="1800">
+  <defs>
+    <!-- 渐变定义 -->
+    <linearGradient id="headerGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#667eea"/>
+      <stop offset="100%" style="stop-color:#764ba2"/>
+    </linearGradient>
+    <linearGradient id="orchestratorGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#f093fb"/>
+      <stop offset="100%" style="stop-color:#f5576c"/>
+    </linearGradient>
+    <linearGradient id="workerGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#4facfe"/>
+      <stop offset="100%" style="stop-color:#00f2fe"/>
+    </linearGradient>
+    <linearGradient id="toolGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#43e97b"/>
+      <stop offset="100%" style="stop-color:#38f9d7"/>
+    </linearGradient>
+    <linearGradient id="apiGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#fa709a"/>
+      <stop offset="100%" style="stop-color:#fee140"/>
+    </linearGradient>
+    <linearGradient id="flowGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#667eea"/>
+      <stop offset="100%" style="stop-color:#764ba2"/>
+    </linearGradient>
+
+    <!-- 阴影效果 -->
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="3" dy="3" stdDeviation="4" flood-opacity="0.2"/>
+    </filter>
+
+    <!-- 箭头标记 -->
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#667eea"/>
+    </marker>
+    <marker id="arrowhead-green" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#43e97b"/>
+    </marker>
+    <marker id="arrowhead-orange" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#fa709a"/>
+    </marker>
+  </defs>
+
+  <!-- 背景 -->
+  <rect width="1400" height="1800" fill="#f8fafc"/>
+
+  <!-- 标题 -->
+  <rect x="50" y="20" width="1300" height="80" rx="10" fill="url(#headerGrad)" filter="url(#shadow)"/>
+  <text x="700" y="70" text-anchor="middle" fill="white" font-size="32" font-family="Arial, sans-serif" font-weight="bold">
+    Deep Research Agent 系统架构图
+  </text>
+
+  <!-- ========== 第一层：用户输入 ========== -->
+  <rect x="550" y="130" width="300" height="60" rx="30" fill="#e0e7ff" stroke="#667eea" stroke-width="2" filter="url(#shadow)"/>
+  <text x="700" y="168" text-anchor="middle" fill="#4338ca" font-size="18" font-family="Arial, sans-serif" font-weight="bold">
+    👤 用户研究任务
+  </text>
+
+  <!-- 箭头：用户 -> 入口 -->
+  <line x1="700" y1="190" x2="700" y2="230" stroke="#667eea" stroke-width="2" marker-end="url(#arrowhead)"/>
+
+  <!-- ========== 第二层：入口选择 ========== -->
+  <g transform="translate(200, 240)">
+    <rect x="0" y="0" width="1000" height="100" rx="10" fill="#fef3c7" stroke="#f59e0b" stroke-width="2" stroke-dasharray="5,5"/>
+    <text x="500" y="25" text-anchor="middle" fill="#92400e" font-size="14" font-family="Arial, sans-serif">入口层</text>
+
+    <!-- CLI入口 -->
+    <rect x="50" y="35" width="180" height="50" rx="8" fill="#fbbf24" filter="url(#shadow)"/>
+    <text x="140" y="67" text-anchor="middle" fill="#78350f" font-size="14" font-family="Arial, sans-serif" font-weight="bold">
+      __main__.py (CLI)
+    </text>
+
+    <!-- Main入口 -->
+    <rect x="280" y="35" width="200" height="50" rx="8" fill="#fbbf24" filter="url(#shadow)"/>
+    <text x="380" y="67" text-anchor="middle" fill="#78350f" font-size="14" font-family="Arial, sans-serif" font-weight="bold">
+      main.py (模块)
+    </text>
+
+    <!-- API入口 -->
+    <rect x="530" y="35" width="200" height="50" rx="8" fill="url(#apiGrad)" filter="url(#shadow)"/>
+    <text x="630" y="67" text-anchor="middle" fill="white" font-size="14" font-family="Arial, sans-serif" font-weight="bold">
+      api.py (FastAPI)
+    </text>
+
+    <!-- Config -->
+    <rect x="780" y="35" width="170" height="50" rx="8" fill="#a3e635" filter="url(#shadow)"/>
+    <text x="865" y="67" text-anchor="middle" fill="#365314" font-size="14" font-family="Arial, sans-serif" font-weight="bold">
+      config.py (配置)
+    </text>
+  </g>
+
+  <!-- 箭头：入口 -> DeepResearchAgent -->
+  <line x1="700" y1="340" x2="700" y2="380" stroke="#667eea" stroke-width="2" marker-end="url(#arrowhead)"/>
+
+  <!-- ========== 第三层：DeepResearchAgent ========== -->
+  <g transform="translate(400, 390)">
+    <rect x="0" y="0" width="600" height="90" rx="10" fill="#ddd6fe" stroke="#7c3aed" stroke-width="3" filter="url(#shadow)"/>
+    <text x="300" y="35" text-anchor="middle" fill="#5b21b6" font-size="20" font-family="Arial, sans-serif" font-weight="bold">
+      DeepResearchAgent
+    </text>
+    <text x="300" y="60" text-anchor="middle" fill="#6b21a8" font-size="13" font-family="Arial, sans-serif">
+      主控制器 | 输出管理 | 进度报告 | 结果存储
+    </text>
+    <text x="300" y="78" text-anchor="middle" fill="#7c3aed" font-size="12" font-family="Arial, sans-serif" font-style="italic">
+      research(task) → final_report
+    </text>
+  </g>
+
+  <!-- 箭头：DeepResearchAgent -> Orchestrator -->
+  <line x1="700" y1="480" x2="700" y2="520" stroke="#667eea" stroke-width="3" marker-end="url(#arrowhead)"/>
+
+  <!-- ========== 第四层：Orchestrator ========== -->
+  <g transform="translate(250, 530)">
+    <rect x="0" y="0" width="900" height="200" rx="15" fill="url(#orchestratorGrad)" filter="url(#shadow)"/>
+    <text x="450" y="35" text-anchor="middle" fill="white" font-size="22" font-family="Arial, sans-serif" font-weight="bold">
+      🎯 Orchestrator (orchestrator.py)
+    </text>
+    <text x="450" y="58" text-anchor="middle" fill="#fce7f3" font-size="13" font-family="Arial, sans-serif">
+      研究协调器 - 负责任务分解、工作调度、质量控制和迭代优化
+    </text>
+
+    <!-- Orchestrator 功能模块 -->
+    <rect x="30" y="75" width="160" height="55" rx="8" fill="rgba(255,255,255,0.9)"/>
+    <text x="110" y="100" text-anchor="middle" fill="#be185d" font-size="12" font-family="Arial, sans-serif" font-weight="bold">📋 任务分解</text>
+    <text x="110" y="118" text-anchor="middle" fill="#9d174d" font-size="10" font-family="Arial, sans-serif">decompose_task()</text>
+
+    <rect x="210" y="75" width="160" height="55" rx="8" fill="rgba(255,255,255,0.9)"/>
+    <text x="290" y="100" text-anchor="middle" fill="#be185d" font-size="12" font-family="Arial, sans-serif" font-weight="bold">🚀 工作调度</text>
+    <text x="290" y="118" text-anchor="middle" fill="#9d174d" font-size="10" font-family="Arial, sans-serif">dispatch_workers()</text>
+
+    <rect x="390" y="75" width="160" height="55" rx="8" fill="rgba(255,255,255,0.9)"/>
+    <text x="470" y="100" text-anchor="middle" fill="#be185d" font-size="12" font-family="Arial, sans-serif" font-weight="bold">📑 结果综合</text>
+    <text x="470" y="118" text-anchor="middle" fill="#9d174d" font-size="10" font-family="Arial, sans-serif">synthesize_results()</text>
+
+    <rect x="570" y="75" width="140" height="55" rx="8" fill="rgba(255,255,255,0.9)"/>
+    <text x="640" y="100" text-anchor="middle" fill="#be185d" font-size="12" font-family="Arial, sans-serif" font-weight="bold">⭐ 质量检查</text>
+    <text x="640" y="118" text-anchor="middle" fill="#9d174d" font-size="10" font-family="Arial, sans-serif">check_quality()</text>
+
+    <rect x="730" y="75" width="140" height="55" rx="8" fill="rgba(255,255,255,0.9)"/>
+    <text x="800" y="100" text-anchor="middle" fill="#be185d" font-size="12" font-family="Arial, sans-serif" font-weight="bold">🔄 迭代优化</text>
+    <text x="800" y="118" text-anchor="middle" fill="#9d174d" font-size="10" font-family="Arial, sans-serif">refine_report()</text>
+
+    <!-- 迭代循环说明 -->
+    <rect x="30" y="145" width="840" height="40" rx="5" fill="rgba(255,255,255,0.7)"/>
+    <text x="450" y="170" text-anchor="middle" fill="#831843" font-size="12" font-family="Arial, sans-serif">
+      🔁 迭代循环：质量检查 → 缺口分析 → 补充研究 → 报告优化 (最少2轮，最多5轮，目标分数≥80)
+    </text>
+  </g>
+
+  <!-- 箭头：Orchestrator -> Workers -->
+  <path d="M 700,730 L 700,780 L 200,780 L 200,830" stroke="#4facfe" stroke-width="2" fill="none" marker-end="url(#arrowhead)"/>
+  <path d="M 700,730 L 700,780 L 500,780 L 500,830" stroke="#4facfe" stroke-width="2" fill="none" marker-end="url(#arrowhead)"/>
+  <path d="M 700,730 L 700,780 L 800,780 L 800,830" stroke="#4facfe" stroke-width="2" fill="none" marker-end="url(#arrowhead)"/>
+  <path d="M 700,730 L 700,780 L 1100,780 L 1100,830" stroke="#4facfe" stroke-width="2" fill="none" marker-end="url(#arrowhead)"/>
+
+  <text x="700" y="800" text-anchor="middle" fill="#0284c7" font-size="12" font-family="Arial, sans-serif" font-weight="bold">
+    ThreadPoolExecutor 并行分发
+  </text>
+
+  <!-- ========== 第五层：Workers ========== -->
+  <g transform="translate(50, 840)">
+    <rect x="0" y="0" width="1300" height="150" rx="10" fill="#e0f2fe" stroke="#0ea5e9" stroke-width="2" stroke-dasharray="5,5"/>
+    <text x="650" y="25" text-anchor="middle" fill="#0369a1" font-size="14" font-family="Arial, sans-serif" font-weight="bold">Workers Layer (workers.py) - 并行执行</text>
+
+    <!-- SearchWorker -->
+    <rect x="30" y="40" width="280" height="95" rx="10" fill="url(#workerGrad)" filter="url(#shadow)"/>
+    <text x="170" y="70" text-anchor="middle" fill="white" font-size="16" font-family="Arial, sans-serif" font-weight="bold">🔍 SearchWorker</text>
+    <text x="170" y="90" text-anchor="middle" fill="#ecfeff" font-size="11" font-family="Arial, sans-serif">查询扩展 | 网页搜索 | 结果去重</text>
+    <text x="170" y="108" text-anchor="middle" fill="#ecfeff" font-size="11" font-family="Arial, sans-serif">LLM分析 | 信息提取 | 可信度评估</text>
+    <text x="170" y="125" text-anchor="middle" fill="#cffafe" font-size="10" font-family="Arial, sans-serif" font-style="italic">返回: key_findings, insights, confidence</text>
+
+    <!-- WriterWorker -->
+    <rect x="350" y="40" width="280" height="95" rx="10" fill="url(#workerGrad)" filter="url(#shadow)"/>
+    <text x="490" y="70" text-anchor="middle" fill="white" font-size="16" font-family="Arial, sans-serif" font-weight="bold">✍️ WriterWorker</text>
+    <text x="490" y="90" text-anchor="middle" fill="#ecfeff" font-size="11" font-family="Arial, sans-serif">研究数据 → 报告章节</text>
+    <text x="490" y="108" text-anchor="middle" fill="#ecfeff" font-size="11" font-family="Arial, sans-serif">专业写作风格 | 逻辑结构</text>
+    <text x="490" y="125" text-anchor="middle" fill="#cffafe" font-size="10" font-family="Arial, sans-serif" font-style="italic">返回: formatted_section</text>
+
+    <!-- AnalysisWorker -->
+    <rect x="670" y="40" width="280" height="95" rx="10" fill="url(#workerGrad)" filter="url(#shadow)"/>
+    <text x="810" y="70" text-anchor="middle" fill="white" font-size="16" font-family="Arial, sans-serif" font-weight="bold">📊 AnalysisWorker</text>
+    <text x="810" y="90" text-anchor="middle" fill="#ecfeff" font-size="11" font-family="Arial, sans-serif">数据分析 | 趋势识别</text>
+    <text x="810" y="108" text-anchor="middle" fill="#ecfeff" font-size="11" font-family="Arial, sans-serif">模式发现 | 数据驱动洞察</text>
+    <text x="810" y="125" text-anchor="middle" fill="#cffafe" font-size="10" font-family="Arial, sans-serif" font-style="italic">返回: analysis_results</text>
+
+    <!-- VisualizationWorker -->
+    <rect x="990" y="40" width="280" height="95" rx="10" fill="url(#workerGrad)" filter="url(#shadow)"/>
+    <text x="1130" y="70" text-anchor="middle" fill="white" font-size="16" font-family="Arial, sans-serif" font-weight="bold">📈 VisualizationWorker</text>
+    <text x="1130" y="90" text-anchor="middle" fill="#ecfeff" font-size="11" font-family="Arial, sans-serif">图表类型推荐 | 可视化描述</text>
+    <text x="1130" y="108" text-anchor="middle" fill="#ecfeff" font-size="11" font-family="Arial, sans-serif">支持前端渲染</text>
+    <text x="1130" y="125" text-anchor="middle" fill="#cffafe" font-size="10" font-family="Arial, sans-serif" font-style="italic">返回: visualization_spec</text>
+  </g>
+
+  <!-- 箭头：Workers -> Tools -->
+  <line x1="220" y1="990" x2="220" y2="1050" stroke="#43e97b" stroke-width="2" marker-end="url(#arrowhead-green)"/>
+  <line x1="540" y1="990" x2="540" y2="1050" stroke="#43e97b" stroke-width="2" marker-end="url(#arrowhead-green)"/>
+  <line x1="860" y1="990" x2="860" y2="1050" stroke="#43e97b" stroke-width="2" marker-end="url(#arrowhead-green)"/>
+  <line x1="1180" y1="990" x2="1180" y2="1050" stroke="#43e97b" stroke-width="2" marker-end="url(#arrowhead-green)"/>
+
+  <!-- ========== 第六层：Tools ========== -->
+  <g transform="translate(50, 1060)">
+    <rect x="0" y="0" width="1300" height="150" rx="10" fill="#d1fae5" stroke="#10b981" stroke-width="2" stroke-dasharray="5,5"/>
+    <text x="650" y="25" text-anchor="middle" fill="#047857" font-size="14" font-family="Arial, sans-serif" font-weight="bold">Tools Layer (tools.py) - 工具层</text>
+
+    <!-- LLMClient -->
+    <rect x="100" y="45" width="350" height="90" rx="10" fill="url(#toolGrad)" filter="url(#shadow)"/>
+    <text x="275" y="75" text-anchor="middle" fill="white" font-size="16" font-family="Arial, sans-serif" font-weight="bold">🤖 LLMClient</text>
+    <text x="275" y="95" text-anchor="middle" fill="#ecfdf5" font-size="11" font-family="Arial, sans-serif">阿里云 DashScope API (OpenAI兼容)</text>
+    <text x="275" y="112" text-anchor="middle" fill="#ecfdf5" font-size="11" font-family="Arial, sans-serif">qwen-plus | qwen-max | qwen-turbo</text>
+    <text x="275" y="127" text-anchor="middle" fill="#a7f3d0" font-size="10" font-family="Arial, sans-serif" font-style="italic">chat() | chat_stream() | 单例模式</text>
+
+    <!-- SearchClient -->
+    <rect x="500" y="45" width="350" height="90" rx="10" fill="url(#toolGrad)" filter="url(#shadow)"/>
+    <text x="675" y="75" text-anchor="middle" fill="white" font-size="16" font-family="Arial, sans-serif" font-weight="bold">🌐 SearchClient</text>
+    <text x="675" y="95" text-anchor="middle" fill="#ecfdf5" font-size="11" font-family="Arial, sans-serif">Bocha Web Search API</text>
+    <text x="675" y="112" text-anchor="middle" fill="#ecfdf5" font-size="11" font-family="Arial, sans-serif">单次搜索 | 批量搜索 | 超时处理</text>
+    <text x="675" y="127" text-anchor="middle" fill="#a7f3d0" font-size="10" font-family="Arial, sans-serif" font-style="italic">search() | multi_search() | 单例模式</text>
+
+    <!-- Utilities -->
+    <rect x="900" y="45" width="350" height="90" rx="10" fill="url(#toolGrad)" filter="url(#shadow)"/>
+    <text x="1075" y="75" text-anchor="middle" fill="white" font-size="16" font-family="Arial, sans-serif" font-weight="bold">🔧 Utilities</text>
+    <text x="1075" y="95" text-anchor="middle" fill="#ecfdf5" font-size="11" font-family="Arial, sans-serif">extract_json() - 健壮JSON提取</text>
+    <text x="1075" y="112" text-anchor="middle" fill="#ecfdf5" font-size="11" font-family="Arial, sans-serif">extract_xml() - XML标签提取</text>
+    <text x="1075" y="127" text-anchor="middle" fill="#a7f3d0" font-size="10" font-family="Arial, sans-serif" font-style="italic">format_search_context() - 格式化</text>
+  </g>
+
+  <!-- ========== 第七层：外部服务 ========== -->
+  <g transform="translate(50, 1230)">
+    <rect x="0" y="0" width="1300" height="100" rx="10" fill="#fce7f3" stroke="#ec4899" stroke-width="2" stroke-dasharray="5,5"/>
+    <text x="650" y="25" text-anchor="middle" fill="#be185d" font-size="14" font-family="Arial, sans-serif" font-weight="bold">External Services - 外部服务</text>
+
+    <!-- Aliyun DashScope -->
+    <rect x="250" y="40" width="350" height="50" rx="25" fill="#f472b6" filter="url(#shadow)"/>
+    <text x="425" y="72" text-anchor="middle" fill="white" font-size="14" font-family="Arial, sans-serif" font-weight="bold">☁️ 阿里云 DashScope (Qwen大模型)</text>
+
+    <!-- Bocha Search -->
+    <rect x="700" y="40" width="350" height="50" rx="25" fill="#f472b6" filter="url(#shadow)"/>
+    <text x="875" y="72" text-anchor="middle" fill="white" font-size="14" font-family="Arial, sans-serif" font-weight="bold">🔎 Bocha Web Search API</text>
+  </g>
+
+  <!-- ========== 右侧：数据流说明 ========== -->
+  <g transform="translate(50, 1350)">
+    <rect x="0" y="0" width="630" height="200" rx="10" fill="#fef9c3" stroke="#eab308" stroke-width="2" filter="url(#shadow)"/>
+    <text x="315" y="30" text-anchor="middle" fill="#854d0e" font-size="16" font-family="Arial, sans-serif" font-weight="bold">📋 数据结构 (Data Classes)</text>
+
+    <text x="30" y="60" fill="#713f12" font-size="12" font-family="monospace">
+      <tspan x="30" dy="0">SubTask      - 子任务定义 (id, description, queries)</tspan>
+      <tspan x="30" dy="20">TaskPlan     - 任务计划 (subtasks, report_structure)</tspan>
+      <tspan x="30" dy="20">WorkerResult - 工作结果 (findings, insights, sources)</tspan>
+      <tspan x="30" dy="20">ResearchState- 研究状态 (report, quality, iterations)</tspan>
+      <tspan x="30" dy="20">IterationRecord - 迭代记录 (score, gaps, actions)</tspan>
+      <tspan x="30" dy="20">SearchResult - 搜索结果 (title, url, summary)</tspan>
+      <tspan x="30" dy="20">LLMResponse  - LLM响应 (content, usage, tokens)</tspan>
+    </text>
+  </g>
+
+  <!-- ========== 右侧：Prompts说明 ========== -->
+  <g transform="translate(720, 1350)">
+    <rect x="0" y="0" width="630" height="200" rx="10" fill="#dbeafe" stroke="#3b82f6" stroke-width="2" filter="url(#shadow)"/>
+    <text x="315" y="30" text-anchor="middle" fill="#1e40af" font-size="16" font-family="Arial, sans-serif" font-weight="bold">📝 Prompt模板 (prompts.py)</text>
+
+    <text x="30" y="60" fill="#1e3a8a" font-size="12" font-family="monospace">
+      <tspan x="30" dy="0">TASK_DECOMPOSITION_PROMPT - 任务分解提示词</tspan>
+      <tspan x="30" dy="20">SYNTHESIS_PROMPT         - 报告综合提示词</tspan>
+      <tspan x="30" dy="20">QUALITY_CHECK_PROMPT     - 质量检查提示词</tspan>
+      <tspan x="30" dy="20">SEARCH_WORKER_PROMPT     - 搜索分析提示词</tspan>
+      <tspan x="30" dy="20">GAP_ANALYSIS_PROMPT      - 缺口分析提示词</tspan>
+      <tspan x="30" dy="20">REPORT_REFINEMENT_PROMPT - 报告优化提示词</tspan>
+      <tspan x="30" dy="20">QUERY_EXPANSION_PROMPT   - 查询扩展提示词</tspan>
+    </text>
+  </g>
+
+  <!-- ========== 底部：API端点 ========== -->
+  <g transform="translate(50, 1570)">
+    <rect x="0" y="0" width="1300" height="100" rx="10" fill="#fce4ec" stroke="#e91e63" stroke-width="2" filter="url(#shadow)"/>
+    <text x="650" y="30" text-anchor="middle" fill="#880e4f" font-size="16" font-family="Arial, sans-serif" font-weight="bold">🌐 FastAPI 端点 (api.py)</text>
+
+    <text x="100" y="60" fill="#ad1457" font-size="12" font-family="monospace" font-weight="bold">POST /research</text>
+    <text x="100" y="80" fill="#c2185b" font-size="11" font-family="Arial, sans-serif">提交研究任务</text>
+
+    <text x="300" y="60" fill="#ad1457" font-size="12" font-family="monospace" font-weight="bold">GET /research/{id}</text>
+    <text x="300" y="80" fill="#c2185b" font-size="11" font-family="Arial, sans-serif">查询任务状态</text>
+
+    <text x="530" y="60" fill="#ad1457" font-size="12" font-family="monospace" font-weight="bold">GET /research/{id}/result</text>
+    <text x="530" y="80" fill="#c2185b" font-size="11" font-family="Arial, sans-serif">获取研究报告</text>
+
+    <text x="780" y="60" fill="#ad1457" font-size="12" font-family="monospace" font-weight="bold">GET /research/{id}/stream</text>
+    <text x="780" y="80" fill="#c2185b" font-size="11" font-family="Arial, sans-serif">SSE实时进度</text>
+
+    <text x="1030" y="60" fill="#ad1457" font-size="12" font-family="monospace" font-weight="bold">DELETE /research/{id}</text>
+    <text x="1030" y="80" fill="#c2185b" font-size="11" font-family="Arial, sans-serif">删除任务</text>
+  </g>
+
+  <!-- ========== 底部：工作流程简图 ========== -->
+  <g transform="translate(50, 1690)">
+    <rect x="0" y="0" width="1300" height="90" rx="10" fill="#e8f5e9" stroke="#4caf50" stroke-width="2" filter="url(#shadow)"/>
+    <text x="650" y="25" text-anchor="middle" fill="#1b5e20" font-size="14" font-family="Arial, sans-serif" font-weight="bold">🔄 核心工作流程</text>
+
+    <!-- 流程步骤 -->
+    <rect x="30" y="40" width="120" height="35" rx="5" fill="#81c784"/>
+    <text x="90" y="63" text-anchor="middle" fill="white" font-size="11" font-family="Arial, sans-serif">1.任务分解</text>
+
+    <text x="165" y="60" fill="#4caf50" font-size="16">→</text>
+
+    <rect x="180" y="40" width="120" height="35" rx="5" fill="#66bb6a"/>
+    <text x="240" y="63" text-anchor="middle" fill="white" font-size="11" font-family="Arial, sans-serif">2.并行搜索</text>
+
+    <text x="315" y="60" fill="#4caf50" font-size="16">→</text>
+
+    <rect x="330" y="40" width="120" height="35" rx="5" fill="#4caf50"/>
+    <text x="390" y="63" text-anchor="middle" fill="white" font-size="11" font-family="Arial, sans-serif">3.结果综合</text>
+
+    <text x="465" y="60" fill="#4caf50" font-size="16">→</text>
+
+    <rect x="480" y="40" width="120" height="35" rx="5" fill="#43a047"/>
+    <text x="540" y="63" text-anchor="middle" fill="white" font-size="11" font-family="Arial, sans-serif">4.质量检查</text>
+
+    <text x="615" y="60" fill="#4caf50" font-size="16">→</text>
+
+    <rect x="630" y="40" width="120" height="35" rx="5" fill="#388e3c"/>
+    <text x="690" y="63" text-anchor="middle" fill="white" font-size="11" font-family="Arial, sans-serif">5.缺口分析</text>
+
+    <text x="765" y="60" fill="#4caf50" font-size="16">→</text>
+
+    <rect x="780" y="40" width="120" height="35" rx="5" fill="#2e7d32"/>
+    <text x="840" y="63" text-anchor="middle" fill="white" font-size="11" font-family="Arial, sans-serif">6.补充研究</text>
+
+    <text x="915" y="60" fill="#4caf50" font-size="16">→</text>
+
+    <rect x="930" y="40" width="120" height="35" rx="5" fill="#1b5e20"/>
+    <text x="990" y="63" text-anchor="middle" fill="white" font-size="11" font-family="Arial, sans-serif">7.报告优化</text>
+
+    <text x="1065" y="60" fill="#4caf50" font-size="16">→</text>
+
+    <rect x="1080" y="40" width="120" height="35" rx="5" fill="#004d40"/>
+    <text x="1140" y="63" text-anchor="middle" fill="white" font-size="11" font-family="Arial, sans-serif">8.输出报告</text>
+
+    <!-- 迭代箭头 -->
+    <path d="M 990,75 L 990,85 L 540,85 L 540,78" stroke="#2e7d32" stroke-width="2" fill="none" marker-end="url(#arrowhead-green)"/>
+    <text x="765" y="95" text-anchor="middle" fill="#1b5e20" font-size="10" font-family="Arial, sans-serif">迭代优化 (2-5轮)</text>
+  </g>
+
+</svg>

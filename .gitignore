@@ -1,0 +1,32 @@
+# 依赖
+node_modules/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 密钥与环境变量（切勿入库）
+.env
+*.pem
+*.key
+*.p12
+
+# 构建产物与运行日志
+dist/
+build/
+*.log
+outputs/
+.tmp/
+
+# 运行时数据（SQLite 数据库 / 向量库 / 产物 / 上传 / 自定义 Skill）
+backend/data/
+
+# 浏览器测试截图产物（体积大，按需保留在本地）
+doc/workbuddy/screenshots/
+
+# 训练产物与大文件
+*.pth
+*.pt
+*.bin
+*.safetensors
+*.gguf

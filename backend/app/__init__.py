@@ -1,0 +1,3 @@
+"""Local Agent Skills — FastAPI 应用包。"""
+
+__version__ = "1.0.0"

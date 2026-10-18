@@ -1,0 +1,119 @@
+# =====================================================================
+# Agent Platform · 容器编排
+#
+# 目标形态（对外只暴露一个端口）：
+#
+#     浏览器 ──► :8080  Nginx(frontend)
+#                        ├─ / ,/assets/*  →  前端构建产物（静态直出；web/vue-element-plus）
+#                        └─ /api/v1/*     →  backend:8000（含 SSE 流式）
+#                                              └─ /app/data（named volume 持久化）
+#                                                   ├─ milvus.db（Milvus Lite 向量库）
+#                                                   ├─ research/（深度研究任务与报告）
+#                                                   └─ outputs|uploads|pdf|logs|browser_data
+#
+# 常用命令（在本文件所在目录执行）：
+#   docker compose config                       # 校验配置
+#   docker compose build                        # 构建镜像
+#   docker compose up -d                        # 启动
+#   docker compose ps / logs -f backend         # 查看状态与日志
+#   docker compose down                         # 停止并移除容器
+#   docker compose down -v                      # 连数据卷一起删除（会丢数据！）
+#
+# 切换到独立 Milvus 集群（可选）：
+#   docker compose -f docker-compose.yml -f deploy/docker-compose.milvus.yml up -d
+# =====================================================================
+
+name: agent-platform
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
+services:
+
+  # ------------------------------------------------------------------
+  # 后端：FastAPI + Uvicorn
+  # ------------------------------------------------------------------
+  backend:
+    build:
+      context: .
+      dockerfile: deploy/backend/Dockerfile
+      args:
+        # 在国内网络下可改为清华源：- PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+        PIP_INDEX_URL: "${PIP_INDEX_URL:-https://pypi.org/simple}"
+        # 关闭 Chromium 安装可显著缩短构建时间（小红书 MCP Server 将不可用）
+        INSTALL_PLAYWRIGHT: "${INSTALL_PLAYWRIGHT:-true}"
+    image: agent-platform-backend:1.1.0
+    container_name: agent-platform-backend
+    restart: unless-stopped
+    # 密钥来自 backend/.env（从 backend/.env.example 复制后填写）
+    env_file:
+      - ./backend/.env
+    environment:
+      TZ: Asia/Shanghai
+      PYTHONUNBUFFERED: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+      HOST: "0.0.0.0"
+      PORT: "8000"
+      # 相对 /app 解析：落到 /app/data/milvus.db（Milvus Lite 文件型向量库）
+      MILVUS_DB_PATH: "data/milvus.db"
+      MILVUS_COLLECTION: "hybrid_demo"
+      RESEARCH_OUTPUT_DIR: "data/research"
+      # RUN_INGEST=true 可在启动时自动执行 RAG 入库（首次需要 PDF + API Key）
+      RUN_INGEST: "false"
+    volumes:
+      # 运行时数据统一持久化到命名数据卷
+      - backend-data:/app/data
+    networks:
+      - agent-platform
+    expose:
+      - "8000"
+    init: true
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; raise SystemExit(0) if urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=8).status == 200 else SystemExit(1)"]
+      interval: 30s
+      timeout: 10s
+      start_period: 90s
+      retries: 5
+
+  # ------------------------------------------------------------------
+  # 前端：Nginx（静态托管 + 反向代理）
+  # ------------------------------------------------------------------
+  web:
+    build:
+      context: .
+      dockerfile: deploy/frontend/Dockerfile
+      args:
+        NPM_REGISTRY: "${NPM_REGISTRY:-https://registry.npmjs.org}"
+    image: agent-platform-web:1.1.0
+    container_name: agent-platform-web
+    restart: unless-stopped
+    ports:
+      # 对外服务端口：http://<宿主机IP>:8080/
+      - "${HOST_HTTP_PORT:-8080}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - agent-platform
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/nginx-healthz"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+networks:
+  agent-platform:
+    name: agent-platform-net
+    driver: bridge
+
+volumes:
+  # 所有运行时数据：向量库 / 研究任务 / 上传 / 产出 / 日志
+  backend-data:
+    name: agent-platform-data

@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600">
+  <!-- 外部边框 -->
+  <rect x="50" y="50" width="700" height="400" fill="none" stroke="#333" stroke-width="2" rx="10" ry="10"/>
+  <text x="400" y="90" font-family="Arial, sans-serif" font-size="24" font-weight="bold" text-anchor="middle">智能体</text>
+  
+  <!-- 思考模块 -->
+  <rect x="150" y="150" width="200" height="120" fill="#d4e6f1" stroke="#333" stroke-width="2" rx="8" ry="8"/>
+  <text x="250" y="190" font-family="Arial, sans-serif" font-size="22" font-weight="bold" text-anchor="middle">思考</text>
+  <text x="250" y="220" font-family="Arial, sans-serif" font-size="16" text-anchor="middle">分析信息与规划行动</text>
+  <text x="250" y="245" font-family="Arial, sans-serif" font-size="14" text-anchor="middle">(基于大语言模型)</text>
+  
+  <!-- 行动模块 -->
+  <rect x="450" y="150" width="200" height="120" fill="#d5f5e3" stroke="#333" stroke-width="2" rx="8" ry="8"/>
+  <text x="550" y="190" font-family="Arial, sans-serif" font-size="22" font-weight="bold" text-anchor="middle">行动</text>
+  <text x="550" y="220" font-family="Arial, sans-serif" font-size="16" text-anchor="middle">执行决策产生输出</text>
+  <text x="550" y="245" font-family="Arial, sans-serif" font-size="14" text-anchor="middle">(基于大语言模型)</text>
+  
+  <!-- 输入 -->
+  <path d="M100 210 L150 210" stroke="#333" stroke-width="2" fill="none" marker-end="url(#arrowhead)"/>
+  <text x="125" y="200" font-family="Arial, sans-serif" font-size="14" text-anchor="middle">输入</text>
+  
+  <!-- 输出 -->
+  <path d="M650 210 L700 210" stroke="#333" stroke-width="2" fill="none" marker-end="url(#arrowhead)"/>
+  <text x="675" y="200" font-family="Arial, sans-serif" font-size="14" text-anchor="middle">输出</text>
+  
+  <!-- 思考到行动 -->
+  <path d="M350 210 L450 210" stroke="#333" stroke-width="2" fill="none" marker-end="url(#arrowhead)"/>
+  <text x="400" y="200" font-family="Arial, sans-serif" font-size="14" text-anchor="middle">决策</text>
+  
+  <!-- 行动到思考（如需调整） -->
+  <path d="M450 250 L400 250 L400 300 L350 300 L300 300 L300 250 L350 250" stroke="#333" stroke-width="2" fill="none" marker-end="url(#arrowhead)" stroke-dasharray="5,3"/>
+  <text x="400" y="320" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" fill="#555">需要调整时</text>
+  
+  <!-- 记忆模块 -->
+  <rect x="300" y="350" width="200" height="60" fill="#f2f2f2" stroke="#333" stroke-width="2" rx="5" ry="5"/>
+  <text x="400" y="385" font-family="Arial, sans-serif" font-size="16" font-weight="bold" text-anchor="middle">记忆 (任务轨迹)</text>
+  
+  <!-- 记忆连接 -->
+  <path d="M250 270 L250 350 L300 350" stroke="#333" stroke-width="1.5" fill="none" stroke-dasharray="5,3"/>
+  <path d="M550 270 L550 350 L500 350" stroke="#333" stroke-width="1.5" fill="none" stroke-dasharray="5,3"/>
+  
+  <!-- 箭头定义 -->
+  <defs>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#333"/>
+    </marker>
+  </defs>
+</svg>

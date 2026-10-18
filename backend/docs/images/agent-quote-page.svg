@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900">
+  <!-- 浅色背景 -->
+  <rect width="1600" height="900" fill="#F5F7FA"/>
+  
+  <!-- 装饰线条 - 顶部 -->
+  <line x1="200" y1="150" x2="1400" y2="150" stroke="#2C5282" stroke-width="3"/>
+  
+  <!-- 装饰线条 - 底部 -->
+  <line x1="200" y1="750" x2="1400" y2="750" stroke="#2C5282" stroke-width="3"/>
+  
+  <!-- 中心内容框 -->
+  <rect x="250" y="300" width="1100" height="300" rx="15" ry="15" fill="#1A365D"/>
+  
+  <!-- 内容文字 -->
+  <text x="800" y="420" font-family="'Arial', sans-serif" font-size="40" font-weight="600" fill="#FFFFFF" text-anchor="middle">我们今天不借助任何的Dify、Langflow等框架，</text>
+  <text x="800" y="490" font-family="'Arial', sans-serif" font-size="40" font-weight="600" fill="#FFFFFF" text-anchor="middle">从向量数据库+OpenAI兼容的接口，</text>
+  <text x="800" y="560" font-family="'Arial', sans-serif" font-size="40" font-weight="600" fill="#FFFFFF" text-anchor="middle">实现最底层也是最灵活的Agent开发</text>
+  
+  <!-- 简约装饰元素 - 左上角 -->
+  <g transform="translate(200, 200)">
+    <rect x="0" y="0" width="40" height="5" fill="#2C5282"/>
+    <rect x="0" y="15" width="25" height="5" fill="#2C5282"/>
+  </g>
+  
+  <!-- 简约装饰元素 - 右下角 -->
+  <g transform="translate(1400, 700)">
+    <rect x="-40" y="0" width="40" height="5" fill="#2C5282"/>
+    <rect x="-25" y="-15" width="25" height="5" fill="#2C5282"/>
+  </g>
+  
+  <!-- 顶部小标题 -->
+  <text x="800" y="120" font-family="'Arial', sans-serif" font-size="36" font-weight="600" fill="#1A365D" text-anchor="middle">Agent开发核心理念</text>
+</svg>

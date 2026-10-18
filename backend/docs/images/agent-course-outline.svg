@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900">
+  <!-- 浅色背景 -->
+  <rect width="1600" height="900" fill="#F5F7FA"/>
+  
+  <!-- 主标题 -->
+  <text x="800" y="120" font-family="'Arial', sans-serif" font-size="70" font-weight="700" fill="#1A365D" text-anchor="middle">销售Agent系统开发课程</text>
+  
+  <!-- 副标题 -->
+  <text x="800" y="180" font-family="'Arial', sans-serif" font-size="36" font-weight="500" fill="#2C5282" text-anchor="middle">组件化是核心 · 工作流是灵魂</text>
+  
+  <!-- 分隔线 -->
+  <line x1="300" y1="220" x2="1300" y2="220" stroke="#2C5282" stroke-width="3"/>
+  
+  <!-- 内容区域 - 课程目录 -->
+  <g>
+    <!-- 课程目录标题 -->
+    <text x="300" y="280" font-family="'Arial', sans-serif" font-size="45" font-weight="600" fill="#1A365D">课程目录</text>
+    
+    <!-- 模块1 -->
+    <text x="300" y="350" font-family="'Arial', sans-serif" font-size="38" font-weight="600" fill="#2C5282">1. Agent介绍</text>
+    <line x1="300" y1="365" x2="350" y2="365" stroke="#2C5282" stroke-width="3"/>
+    
+    <!-- 模块2 -->
+    <text x="300" y="430" font-family="'Arial', sans-serif" font-size="38" font-weight="600" fill="#2C5282">2. 组件构建</text>
+    <line x1="300" y1="445" x2="350" y2="445" stroke="#2C5282" stroke-width="3"/>
+    
+    <!-- 子模块2.1 -->
+    <text x="350" y="490" font-family="'Arial', sans-serif" font-size="32" font-weight="500" fill="#2A4365">2.1 手写RAG（llamaindex+Milvus+BGE）</text>
+    
+    <!-- 子模块2.2 -->
+    <text x="350" y="550" font-family="'Arial', sans-serif" font-size="32" font-weight="500" fill="#2A4365">2.2 手写网络搜索（文本、图片、视频）</text>
+    
+    <!-- 模块3 -->
+    <text x="300" y="620" font-family="'Arial', sans-serif" font-size="38" font-weight="600" fill="#2C5282">3. 手写ReAct-Reflection</text>
+    <line x1="300" y1="635" x2="350" y2="635" stroke="#2C5282" stroke-width="3"/>
+    
+    <!-- 子模块3.1-3.5 -->
+    <text x="350" y="680" font-family="'Arial', sans-serif" font-size="32" font-weight="500" fill="#2A4365">3.1 plan模块</text>
+    <text x="350" y="730" font-family="'Arial', sans-serif" font-size="32" font-weight="500" fill="#2A4365">3.2 memory模块</text>
+    <text x="350" y="780" font-family="'Arial', sans-serif" font-size="32" font-weight="500" fill="#2A4365">3.3 action模块</text>
+    <text x="350" y="830" font-family="'Arial', sans-serif" font-size="32" font-weight="500" fill="#2A4365">3.4 reflection模块</text>
+    <text x="350" y="880" font-family="'Arial', sans-serif" font-size="32" font-weight="500" fill="#2A4365">3.5 response模块</text>
+  </g>
+  
+  <!-- 右侧架构图 -->
+  <g transform="translate(1200, 550)">
+    <!-- 核心Agent框 -->
+    <rect x="-150" y="-100" width="300" height="200" rx="15" ry="15" fill="#EDF2F7" stroke="#2C5282" stroke-width="3"/>
+    
+    <!-- ReAct-Reflection流程 -->
+    <g transform="translate(0, 0)">
+      <circle cx="-80" cy="-60" r="30" fill="#F5F7FA" stroke="#2C5282" stroke-width="2"/>
+      <text x="-80" y="-55" font-family="'Arial', sans-serif" font-size="18" font-weight="500" fill="#2C5282" text-anchor="middle">Plan</text>
+      
+      <circle cx="80" cy="-60" r="30" fill="#F5F7FA" stroke="#2C5282" stroke-width="2"/>
+      <text x="80" y="-55" font-family="'Arial', sans-serif" font-size="18" font-weight="500" fill="#2C5282" text-anchor="middle">Memory</text>
+      
+      <circle cx="-80" cy="60" r="30" fill="#F5F7FA" stroke="#2C5282" stroke-width="2"/>
+      <text x="-80" y="65" font-family="'Arial', sans-serif" font-size="18" font-weight="500" fill="#2C5282" text-anchor="middle">Action</text>
+      
+      <circle cx="80" cy="60" r="30" fill="#F5F7FA" stroke="#2C5282" stroke-width="2"/>
+      <text x="80" y="65" font-family="'Arial', sans-serif" font-size="18" font-weight="500" fill="#2C5282" text-anchor="middle">Reflect</text>
+      
+      <circle cx="0" cy="0" r="35" fill="#F5F7FA" stroke="#2C5282" stroke-width="2"/>
+      <text x="0" y="5" font-family="'Arial', sans-serif" font-size="16" font-weight="500" fill="#2C5282" text-anchor="middle">Response</text>
+      
+      <!-- 连接箭头 -->
+      <line x1="-50" y1="-60" x2="50" y2="-60" stroke="#2C5282" stroke-width="1.5"/>
+      <line x1="80" y1="-30" x2="80" y2="30" stroke="#2C5282" stroke-width="1.5"/>
+      <line x1="50" y1="60" x2="-50" y2="60" stroke="#2C5282" stroke-width="1.5"/>
+      <line x1="-80" y1="30" x2="-80" y2="-30" stroke="#2C5282" stroke-width="1.5"/>
+      
+      <line x1="-50" y1="-40" x2="-20" y2="-20" stroke="#2C5282" stroke-width="1.5"/>
+      <line x1="50" y1="-40" x2="20" y2="-20" stroke="#2C5282" stroke-width="1.5"/>
+      <line x1="50" y1="40" x2="20" y2="20" stroke="#2C5282" stroke-width="1.5"/>
+      <line x1="-50" y1="40" x2="-20" y2="20" stroke="#2C5282" stroke-width="1.5"/>
+    </g>
+    
+    <!-- 外部组件 -->
+    <rect x="-250" y="-230" width="150" height="60" rx="10" ry="10" fill="#F5F7FA" stroke="#2C5282" stroke-width="2"/>
+    <text x="-175" y="-200" font-family="'Arial', sans-serif" font-size="20" font-weight="500" fill="#2C5282" text-anchor="middle">RAG</text>
+    
+    <rect x="100" y="-230" width="150" height="60" rx="10" ry="10" fill="#F5F7FA" stroke="#2C5282" stroke-width="2"/>
+    <text x="175" y="-200" font-family="'Arial', sans-serif" font-size="20" font-weight="500" fill="#2C5282" text-anchor="middle">网络搜索</text>
+    
+    <!-- 连接线 -->
+    <line x1="-175" y1="-170" x2="-80" y2="-90" stroke="#2C5282" stroke-width="1.5"/>
+    <line x1="175" y1="-170" x2="80" y2="-90" stroke="#2C5282" stroke-width="1.5"/>
+  </g>
+</svg>

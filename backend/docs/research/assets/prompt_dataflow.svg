@@ -1,0 +1,576 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 2400" width="1600" height="2400">
+  <defs>
+    <!-- 渐变定义 -->
+    <linearGradient id="promptGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#667eea"/>
+      <stop offset="100%" style="stop-color:#764ba2"/>
+    </linearGradient>
+    <linearGradient id="inputGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#43e97b"/>
+      <stop offset="100%" style="stop-color:#38f9d7"/>
+    </linearGradient>
+    <linearGradient id="outputGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#fa709a"/>
+      <stop offset="100%" style="stop-color:#fee140"/>
+    </linearGradient>
+    <linearGradient id="llmGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#f093fb"/>
+      <stop offset="100%" style="stop-color:#f5576c"/>
+    </linearGradient>
+
+    <!-- 阴影 -->
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="2" dy="2" stdDeviation="3" flood-opacity="0.15"/>
+    </filter>
+
+    <!-- 箭头 -->
+    <marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#667eea"/>
+    </marker>
+    <marker id="arrow-green" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#38f9d7"/>
+    </marker>
+    <marker id="arrow-orange" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#fa709a"/>
+    </marker>
+    <marker id="arrow-red" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#ef4444"/>
+    </marker>
+  </defs>
+
+  <!-- 背景 -->
+  <rect width="1600" height="2400" fill="#f8fafc"/>
+
+  <!-- 标题 -->
+  <rect x="50" y="20" width="1500" height="80" rx="10" fill="url(#promptGrad)" filter="url(#shadow)"/>
+  <text x="800" y="55" text-anchor="middle" fill="white" font-size="28" font-family="Arial, sans-serif" font-weight="bold">
+    Deep Research Agent - Prompt 数据流转详解
+  </text>
+  <text x="800" y="80" text-anchor="middle" fill="#e0e7ff" font-size="14" font-family="Arial, sans-serif">
+    每个 Prompt 的输入变量来源 → LLM处理 → 输出结果 → 传递给下一步
+  </text>
+
+  <!-- 图例 -->
+  <g transform="translate(1200, 120)">
+    <rect x="0" y="0" width="320" height="100" rx="8" fill="white" stroke="#e5e7eb" stroke-width="1"/>
+    <text x="160" y="25" text-anchor="middle" fill="#374151" font-size="14" font-family="Arial, sans-serif" font-weight="bold">图例</text>
+    <rect x="20" y="40" width="60" height="20" rx="4" fill="url(#inputGrad)"/>
+    <text x="90" y="55" fill="#374151" font-size="12" font-family="Arial, sans-serif">输入变量</text>
+    <rect x="170" y="40" width="60" height="20" rx="4" fill="url(#outputGrad)"/>
+    <text x="240" y="55" fill="#374151" font-size="12" font-family="Arial, sans-serif">输出结果</text>
+    <rect x="20" y="70" width="60" height="20" rx="4" fill="url(#promptGrad)"/>
+    <text x="90" y="85" fill="#374151" font-size="12" font-family="Arial, sans-serif">Prompt模板</text>
+    <rect x="170" y="70" width="60" height="20" rx="4" fill="url(#llmGrad)"/>
+    <text x="240" y="85" fill="#374151" font-size="12" font-family="Arial, sans-serif">LLM处理</text>
+  </g>
+
+  <!-- ==================== STEP 1: 用户输入 ==================== -->
+  <g transform="translate(50, 130)">
+    <rect x="0" y="0" width="1100" height="80" rx="10" fill="#ecfdf5" stroke="#10b981" stroke-width="2" filter="url(#shadow)"/>
+    <text x="30" y="35" fill="#047857" font-size="18" font-family="Arial, sans-serif" font-weight="bold">STEP 0: 用户输入</text>
+    <rect x="30" y="50" width="200" height="25" rx="4" fill="#10b981"/>
+    <text x="130" y="68" text-anchor="middle" fill="white" font-size="13" font-family="monospace">task (研究任务描述)</text>
+    <text x="250" y="68" fill="#065f46" font-size="12" font-family="Arial, sans-serif">
+      例: "2024年中国新能源汽车市场分析报告"
+    </text>
+  </g>
+
+  <!-- 连接线 -->
+  <line x1="180" y1="210" x2="180" y2="250" stroke="#10b981" stroke-width="2" marker-end="url(#arrow-green)"/>
+
+  <!-- ==================== STEP 1: TASK_DECOMPOSITION_PROMPT ==================== -->
+  <g transform="translate(50, 260)">
+    <rect x="0" y="0" width="1500" height="260" rx="10" fill="white" stroke="#667eea" stroke-width="2" filter="url(#shadow)"/>
+
+    <!-- 标题 -->
+    <rect x="0" y="0" width="1500" height="40" rx="10" fill="url(#promptGrad)"/>
+    <text x="30" y="28" fill="white" font-size="16" font-family="Arial, sans-serif" font-weight="bold">
+      STEP 1: TASK_DECOMPOSITION_PROMPT (任务分解)
+    </text>
+    <text x="1200" y="28" fill="#e0e7ff" font-size="12" font-family="monospace">orchestrator.decompose_task()</text>
+
+    <!-- 输入区域 -->
+    <rect x="20" y="55" width="400" height="90" rx="8" fill="#ecfdf5" stroke="#10b981" stroke-width="1"/>
+    <text x="40" y="78" fill="#047857" font-size="14" font-family="Arial, sans-serif" font-weight="bold">📥 输入变量</text>
+    <rect x="40" y="90" width="100" height="22" rx="4" fill="url(#inputGrad)"/>
+    <text x="90" y="106" text-anchor="middle" fill="#065f46" font-size="11" font-family="monospace">{task}</text>
+    <text x="150" y="106" fill="#374151" font-size="11" font-family="Arial, sans-serif">← 用户原始任务描述</text>
+    <text x="40" y="135" fill="#6b7280" font-size="11" font-family="Arial, sans-serif">来源: 用户输入 (STEP 0)</text>
+
+    <!-- LLM处理 -->
+    <rect x="460" y="55" width="200" height="90" rx="8" fill="url(#llmGrad)"/>
+    <text x="560" y="90" text-anchor="middle" fill="white" font-size="14" font-family="Arial, sans-serif" font-weight="bold">🤖 LLM 处理</text>
+    <text x="560" y="115" text-anchor="middle" fill="#fce7f3" font-size="11" font-family="Arial, sans-serif">分析任务目标</text>
+    <text x="560" y="132" text-anchor="middle" fill="#fce7f3" font-size="11" font-family="Arial, sans-serif">拆解为3-8个子任务</text>
+
+    <!-- 箭头 -->
+    <line x1="420" y1="100" x2="455" y2="100" stroke="#667eea" stroke-width="2" marker-end="url(#arrow)"/>
+    <line x1="660" y1="100" x2="695" y2="100" stroke="#fa709a" stroke-width="2" marker-end="url(#arrow-orange)"/>
+
+    <!-- 输出区域 -->
+    <rect x="700" y="55" width="780" height="190" rx="8" fill="#fef3c7" stroke="#f59e0b" stroke-width="1"/>
+    <text x="720" y="78" fill="#92400e" font-size="14" font-family="Arial, sans-serif" font-weight="bold">📤 输出结果 (JSON → TaskPlan)</text>
+
+    <text x="720" y="100" fill="#78350f" font-size="11" font-family="monospace" font-weight="bold">task_understanding:</text>
+    <text x="740" y="115" fill="#713f12" font-size="10" font-family="monospace">core_objective, expected_output, key_dimensions, target_audience</text>
+
+    <text x="720" y="135" fill="#78350f" font-size="11" font-family="monospace" font-weight="bold">subtasks[] (SubTask):</text>
+    <rect x="740" y="145" width="110" height="18" rx="3" fill="url(#outputGrad)"/>
+    <text x="795" y="158" text-anchor="middle" fill="#78350f" font-size="10" font-family="monospace">id</text>
+    <rect x="860" y="145" width="110" height="18" rx="3" fill="url(#outputGrad)"/>
+    <text x="915" y="158" text-anchor="middle" fill="#78350f" font-size="10" font-family="monospace">name</text>
+    <rect x="980" y="145" width="130" height="18" rx="3" fill="url(#outputGrad)"/>
+    <text x="1045" y="158" text-anchor="middle" fill="#78350f" font-size="10" font-family="monospace">description</text>
+    <rect x="1120" y="145" width="130" height="18" rx="3" fill="url(#outputGrad)"/>
+    <text x="1185" y="158" text-anchor="middle" fill="#78350f" font-size="10" font-family="monospace">search_queries[]</text>
+    <rect x="1260" y="145" width="100" height="18" rx="3" fill="url(#outputGrad)"/>
+    <text x="1310" y="158" text-anchor="middle" fill="#78350f" font-size="10" font-family="monospace">priority</text>
+    <rect x="1370" y="145" width="90" height="18" rx="3" fill="url(#outputGrad)"/>
+    <text x="1415" y="158" text-anchor="middle" fill="#78350f" font-size="10" font-family="monospace">expected_output</text>
+
+    <text x="720" y="185" fill="#78350f" font-size="11" font-family="monospace" font-weight="bold">report_structure:</text>
+    <text x="740" y="200" fill="#713f12" font-size="10" font-family="monospace">title, sections[]</text>
+
+    <text x="720" y="230" fill="#dc2626" font-size="11" font-family="Arial, sans-serif" font-weight="bold">
+      ⬇️ 传递给: STEP 2 (SearchWorker) 和 STEP 3 (SYNTHESIS_PROMPT)
+    </text>
+  </g>
+
+  <!-- 连接线 -->
+  <path d="M 800,520 L 800,560" stroke="#667eea" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- ==================== STEP 2: SEARCH_WORKER_TASK_PROMPT ==================== -->
+  <g transform="translate(50, 570)">
+    <rect x="0" y="0" width="1500" height="280" rx="10" fill="white" stroke="#4facfe" stroke-width="2" filter="url(#shadow)"/>
+
+    <!-- 标题 -->
+    <rect x="0" y="0" width="1500" height="40" rx="10" fill="#4facfe"/>
+    <text x="30" y="28" fill="white" font-size="16" font-family="Arial, sans-serif" font-weight="bold">
+      STEP 2: SEARCH_WORKER_TASK_PROMPT (搜索分析) - 并行执行 N 个 Worker
+    </text>
+    <text x="1180" y="28" fill="#e0f2fe" font-size="12" font-family="monospace">workers.SearchWorker.execute()</text>
+
+    <!-- 输入区域 -->
+    <rect x="20" y="55" width="480" height="210" rx="8" fill="#ecfdf5" stroke="#10b981" stroke-width="1"/>
+    <text x="40" y="78" fill="#047857" font-size="14" font-family="Arial, sans-serif" font-weight="bold">📥 输入变量</text>
+
+    <rect x="40" y="90" width="90" height="20" rx="4" fill="url(#inputGrad)"/>
+    <text x="85" y="105" text-anchor="middle" fill="#065f46" font-size="10" font-family="monospace">{task_id}</text>
+    <text x="140" y="105" fill="#374151" font-size="10" font-family="Arial, sans-serif">← subtasks[i].id (STEP1)</text>
+
+    <rect x="40" y="115" width="100" height="20" rx="4" fill="url(#inputGrad)"/>
+    <text x="90" y="130" text-anchor="middle" fill="#065f46" font-size="10" font-family="monospace">{task_name}</text>
+    <text x="150" y="130" fill="#374151" font-size="10" font-family="Arial, sans-serif">← subtasks[i].name (STEP1)</text>
+
+    <rect x="40" y="140" width="130" height="20" rx="4" fill="url(#inputGrad)"/>
+    <text x="105" y="155" text-anchor="middle" fill="#065f46" font-size="10" font-family="monospace">{task_description}</text>
+    <text x="180" y="155" fill="#374151" font-size="10" font-family="Arial, sans-serif">← subtasks[i].description (STEP1)</text>
+
+    <rect x="40" y="165" width="130" height="20" rx="4" fill="url(#inputGrad)"/>
+    <text x="105" y="180" text-anchor="middle" fill="#065f46" font-size="10" font-family="monospace">{search_queries}</text>
+    <text x="180" y="180" fill="#374151" font-size="10" font-family="Arial, sans-serif">← subtasks[i].search_queries (STEP1)</text>
+
+    <rect x="40" y="190" width="140" height="20" rx="4" fill="url(#inputGrad)"/>
+    <text x="110" y="205" text-anchor="middle" fill="#065f46" font-size="10" font-family="monospace">{expected_output}</text>
+    <text x="190" y="205" fill="#374151" font-size="10" font-family="Arial, sans-serif">← subtasks[i].expected_output (STEP1)</text>
+
+    <rect x="40" y="215" width="130" height="20" rx="4" fill="#fbbf24"/>
+    <text x="105" y="230" text-anchor="middle" fill="#78350f" font-size="10" font-family="monospace">{search_results}</text>
+    <text x="180" y="230" fill="#374151" font-size="10" font-family="Arial, sans-serif">← SearchClient.search() 实时获取</text>
+
+    <text x="40" y="255" fill="#6b7280" font-size="10" font-family="Arial, sans-serif">来源: STEP 1 输出的 subtasks + Bocha API 搜索结果</text>
+
+    <!-- LLM处理 -->
+    <rect x="520" y="55" width="200" height="100" rx="8" fill="url(#llmGrad)"/>
+    <text x="620" y="85" text-anchor="middle" fill="white" font-size="14" font-family="Arial, sans-serif" font-weight="bold">🤖 LLM 处理</text>
+    <text x="620" y="108" text-anchor="middle" fill="#fce7f3" font-size="10" font-family="Arial, sans-serif">提取关键信息</text>
+    <text x="620" y="123" text-anchor="middle" fill="#fce7f3" font-size="10" font-family="Arial, sans-serif">评估来源可靠性</text>
+    <text x="620" y="138" text-anchor="middle" fill="#fce7f3" font-size="10" font-family="Arial, sans-serif">生成洞察分析</text>
+
+    <!-- 箭头 -->
+    <line x1="500" y1="110" x2="515" y2="110" stroke="#667eea" stroke-width="2" marker-end="url(#arrow)"/>
+    <line x1="720" y1="110" x2="755" y2="110" stroke="#fa709a" stroke-width="2" marker-end="url(#arrow-orange)"/>
+
+    <!-- 输出区域 -->
+    <rect x="760" y="55" width="720" height="210" rx="8" fill="#fef3c7" stroke="#f59e0b" stroke-width="1"/>
+    <text x="780" y="78" fill="#92400e" font-size="14" font-family="Arial, sans-serif" font-weight="bold">📤 输出结果 (JSON → worker_results[])</text>
+
+    <rect x="780" y="90" width="120" height="18" rx="3" fill="url(#outputGrad)"/>
+    <text x="840" y="103" text-anchor="middle" fill="#78350f" font-size="10" font-family="monospace">key_findings[]</text>
+    <text x="910" y="103" fill="#713f12" font-size="10" font-family="Arial, sans-serif">finding, data, source, source_url, reliability, date</text>
+
+    <rect x="780" y="115" width="100" height="18" rx="3" fill="url(#outputGrad)"/>
+    <text x="830" y="128" text-anchor="middle" fill="#78350f" font-size="10" font-family="monospace">summary</text>
+    <text x="890" y="128" fill="#713f12" font-size="10" font-family="Arial, sans-serif">本任务的研究总结 (200-500字)</text>
+
+    <rect x="780" y="140" width="110" height="18" rx="3" fill="url(#outputGrad)"/>
+    <text x="835" y="153" text-anchor="middle" fill="#78350f" font-size="10" font-family="monospace">data_points[]</text>
+    <text x="900" y="153" fill="#713f12" font-size="10" font-family="Arial, sans-serif">metric, value, source (结构化数据点)</text>
+
+    <rect x="780" y="165" width="90" height="18" rx="3" fill="url(#outputGrad)"/>
+    <text x="825" y="178" text-anchor="middle" fill="#78350f" font-size="10" font-family="monospace">insights[]</text>
+    <text x="880" y="178" fill="#713f12" font-size="10" font-family="Arial, sans-serif">洞察列表</text>
+
+    <rect x="780" y="190" width="100" height="18" rx="3" fill="url(#outputGrad)"/>
+    <text x="830" y="203" text-anchor="middle" fill="#78350f" font-size="10" font-family="monospace">limitations</text>
+    <text x="890" y="203" fill="#713f12" font-size="10" font-family="Arial, sans-serif">研究局限性</text>
+
+    <rect x="780" y="215" width="130" height="18" rx="3" fill="url(#outputGrad)"/>
+    <text x="845" y="228" text-anchor="middle" fill="#78350f" font-size="10" font-family="monospace">confidence_level</text>
+    <text x="920" y="228" fill="#713f12" font-size="10" font-family="Arial, sans-serif">high/medium/low</text>
+
+    <text x="780" y="255" fill="#dc2626" font-size="11" font-family="Arial, sans-serif" font-weight="bold">
+      ⬇️ 传递给: STEP 3 作为 {worker_results}
+    </text>
+  </g>
+
+  <!-- 连接线 -->
+  <path d="M 800,850 L 800,890" stroke="#667eea" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- ==================== STEP 3: SYNTHESIS_PROMPT ==================== -->
+  <g transform="translate(50, 900)">
+    <rect x="0" y="0" width="1500" height="230" rx="10" fill="white" stroke="#667eea" stroke-width="2" filter="url(#shadow)"/>
+
+    <!-- 标题 -->
+    <rect x="0" y="0" width="1500" height="40" rx="10" fill="url(#promptGrad)"/>
+    <text x="30" y="28" fill="white" font-size="16" font-family="Arial, sans-serif" font-weight="bold">
+      STEP 3: SYNTHESIS_PROMPT (结果综合)
+    </text>
+    <text x="1200" y="28" fill="#e0e7ff" font-size="12" font-family="monospace">orchestrator.synthesize_results()</text>
+
+    <!-- 输入区域 -->
+    <rect x="20" y="55" width="500" height="160" rx="8" fill="#ecfdf5" stroke="#10b981" stroke-width="1"/>
+    <text x="40" y="78" fill="#047857" font-size="14" font-family="Arial, sans-serif" font-weight="bold">📥 输入变量</text>
+
+    <rect x="40" y="95" width="130" height="20" rx="4" fill="url(#inputGrad)"/>
+    <text x="105" y="110" text-anchor="middle" fill="#065f46" font-size="10" font-family="monospace">{original_task}</text>
+    <text x="180" y="110" fill="#374151" font-size="10" font-family="Arial, sans-serif">← 用户原始任务 (STEP 0)</text>
+
+    <rect x="40" y="120" width="140" height="20" rx="4" fill="url(#inputGrad)"/>
+    <text x="110" y="135" text-anchor="middle" fill="#065f46" font-size="10" font-family="monospace">{report_structure}</text>
+    <text x="190" y="135" fill="#374151" font-size="10" font-family="Arial, sans-serif">← task_plan.report_structure (STEP 1)</text>
+
+    <rect x="40" y="145" width="130" height="20" rx="4" fill="url(#inputGrad)"/>
+    <text x="105" y="160" text-anchor="middle" fill="#065f46" font-size="10" font-family="monospace">{worker_results}</text>
+    <text x="180" y="160" fill="#374151" font-size="10" font-family="Arial, sans-serif">← 所有Worker结果 (STEP 2 格式化后)</text>
+
+    <text x="40" y="200" fill="#6b7280" font-size="10" font-family="Arial, sans-serif">
+      worker_results 通过 _format_worker_results() 格式化为文本
+    </text>
+
+    <!-- LLM处理 -->
+    <rect x="540" y="55" width="200" height="100" rx="8" fill="url(#llmGrad)"/>
+    <text x="640" y="85" text-anchor="middle" fill="white" font-size="14" font-family="Arial, sans-serif" font-weight="bold">🤖 LLM 处理</text>
+    <text x="640" y="108" text-anchor="middle" fill="#fce7f3" font-size="10" font-family="Arial, sans-serif">按报告结构组织内容</text>
+    <text x="640" y="123" text-anchor="middle" fill="#fce7f3" font-size="10" font-family="Arial, sans-serif">添加引用编号 [1][2]</text>
+    <text x="640" y="138" text-anchor="middle" fill="#fce7f3" font-size="10" font-family="Arial, sans-serif">生成参考来源章节</text>
+
+    <!-- 箭头 -->
+    <line x1="520" y1="105" x2="535" y2="105" stroke="#667eea" stroke-width="2" marker-end="url(#arrow)"/>
+    <line x1="740" y1="105" x2="775" y2="105" stroke="#fa709a" stroke-width="2" marker-end="url(#arrow-orange)"/>
+
+    <!-- 输出区域 -->
+    <rect x="780" y="55" width="700" height="160" rx="8" fill="#fef3c7" stroke="#f59e0b" stroke-width="1"/>
+    <text x="800" y="78" fill="#92400e" font-size="14" font-family="Arial, sans-serif" font-weight="bold">📤 输出结果 (Markdown String)</text>
+
+    <rect x="800" y="95" width="150" height="20" rx="4" fill="url(#outputGrad)"/>
+    <text x="875" y="110" text-anchor="middle" fill="#78350f" font-size="11" font-family="monospace">current_report</text>
+    <text x="960" y="110" fill="#713f12" font-size="11" font-family="Arial, sans-serif">完整的 Markdown 研究报告</text>
+
+    <text x="800" y="140" fill="#713f12" font-size="11" font-family="Arial, sans-serif">报告结构: 执行摘要 → 各章节内容 → 结论建议 → 参考来源</text>
+    <text x="800" y="160" fill="#713f12" font-size="11" font-family="Arial, sans-serif">包含: 引用标注 [1]、表格、粗体数据、来源列表</text>
+
+    <text x="800" y="195" fill="#dc2626" font-size="11" font-family="Arial, sans-serif" font-weight="bold">
+      ⬇️ 传递给: STEP 4 作为 {report} 和后续步骤作为 {original_report}
+    </text>
+  </g>
+
+  <!-- 迭代循环标记 -->
+  <rect x="30" y="1140" width="1540" height="30" rx="5" fill="#fef3c7" stroke="#f59e0b" stroke-width="2"/>
+  <text x="800" y="1160" text-anchor="middle" fill="#92400e" font-size="14" font-family="Arial, sans-serif" font-weight="bold">
+    🔄 以下 STEP 4-7 在迭代循环中执行 (最少2轮，最多5轮，直到 quality_score ≥ 80)
+  </text>
+
+  <!-- 连接线 -->
+  <path d="M 800,1130 L 800,1185" stroke="#667eea" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- ==================== STEP 4: QUALITY_CHECK_PROMPT ==================== -->
+  <g transform="translate(50, 1190)">
+    <rect x="0" y="0" width="1500" height="200" rx="10" fill="white" stroke="#8b5cf6" stroke-width="2" filter="url(#shadow)"/>
+
+    <!-- 标题 -->
+    <rect x="0" y="0" width="1500" height="40" rx="10" fill="#8b5cf6"/>
+    <text x="30" y="28" fill="white" font-size="16" font-family="Arial, sans-serif" font-weight="bold">
+      STEP 4: QUALITY_CHECK_PROMPT (质量检查)
+    </text>
+    <text x="1200" y="28" fill="#ede9fe" font-size="12" font-family="monospace">orchestrator.check_quality()</text>
+
+    <!-- 输入区域 -->
+    <rect x="20" y="55" width="400" height="130" rx="8" fill="#ecfdf5" stroke="#10b981" stroke-width="1"/>
+    <text x="40" y="78" fill="#047857" font-size="14" font-family="Arial, sans-serif" font-weight="bold">📥 输入变量</text>
+
+    <rect x="40" y="95" width="80" height="20" rx="4" fill="url(#inputGrad)"/>
+    <text x="80" y="110" text-anchor="middle" fill="#065f46" font-size="10" font-family="monospace">{report}</text>
+    <text x="130" y="110" fill="#374151" font-size="10" font-family="Arial, sans-serif">← current_report (STEP 3 或上一轮 STEP 7)</text>
+
+    <rect x="40" y="120" width="130" height="20" rx="4" fill="url(#inputGrad)"/>
+    <text x="105" y="135" text-anchor="middle" fill="#065f46" font-size="10" font-family="monospace">{original_task}</text>
+    <text x="180" y="135" fill="#374151" font-size="10" font-family="Arial, sans-serif">← 用户原始任务 (STEP 0)</text>
+
+    <text x="40" y="170" fill="#6b7280" font-size="10" font-family="Arial, sans-serif">
+      首轮: report 来自 STEP 3; 后续轮: 来自 STEP 7 的 refined_report
+    </text>
+
+    <!-- LLM处理 -->
+    <rect x="440" y="55" width="200" height="100" rx="8" fill="url(#llmGrad)"/>
+    <text x="540" y="85" text-anchor="middle" fill="white" font-size="14" font-family="Arial, sans-serif" font-weight="bold">🤖 LLM 处理</text>
+    <text x="540" y="108" text-anchor="middle" fill="#fce7f3" font-size="10" font-family="Arial, sans-serif">评估5个维度</text>
+    <text x="540" y="123" text-anchor="middle" fill="#fce7f3" font-size="10" font-family="Arial, sans-serif">生成0-100分数</text>
+    <text x="540" y="138" text-anchor="middle" fill="#fce7f3" font-size="10" font-family="Arial, sans-serif">识别缺失方面</text>
+
+    <!-- 箭头 -->
+    <line x1="420" y1="105" x2="435" y2="105" stroke="#667eea" stroke-width="2" marker-end="url(#arrow)"/>
+    <line x1="640" y1="105" x2="675" y2="105" stroke="#fa709a" stroke-width="2" marker-end="url(#arrow-orange)"/>
+
+    <!-- 输出区域 -->
+    <rect x="680" y="55" width="800" height="130" rx="8" fill="#fef3c7" stroke="#f59e0b" stroke-width="1"/>
+    <text x="700" y="78" fill="#92400e" font-size="14" font-family="Arial, sans-serif" font-weight="bold">📤 输出结果 (JSON → quality_result)</text>
+
+    <rect x="700" y="95" width="110" height="18" rx="3" fill="url(#outputGrad)"/>
+    <text x="755" y="108" text-anchor="middle" fill="#78350f" font-size="10" font-family="monospace">overall_score</text>
+    <text x="820" y="108" fill="#713f12" font-size="10" font-family="Arial, sans-serif">0-100 总分 (决定是否继续迭代)</text>
+
+    <rect x="700" y="118" width="100" height="18" rx="3" fill="url(#outputGrad)"/>
+    <text x="750" y="131" text-anchor="middle" fill="#78350f" font-size="10" font-family="monospace">dimensions</text>
+    <text x="810" y="131" fill="#713f12" font-size="10" font-family="Arial, sans-serif">completeness, accuracy, depth, structure, readability</text>
+
+    <rect x="700" y="141" width="130" height="18" rx="3" fill="url(#outputGrad)"/>
+    <text x="765" y="154" text-anchor="middle" fill="#78350f" font-size="10" font-family="monospace">missing_aspects[]</text>
+    <text x="840" y="154" fill="#713f12" font-size="10" font-family="Arial, sans-serif">缺失的方面列表</text>
+
+    <rect x="1050" y="95" width="180" height="18" rx="3" fill="url(#outputGrad)"/>
+    <text x="1140" y="108" text-anchor="middle" fill="#78350f" font-size="10" font-family="monospace">improvement_suggestions[]</text>
+
+    <rect x="1050" y="118" width="130" height="18" rx="3" fill="url(#outputGrad)"/>
+    <text x="1115" y="131" text-anchor="middle" fill="#78350f" font-size="10" font-family="monospace">needs_revision</text>
+    <text x="1190" y="131" fill="#713f12" font-size="10" font-family="Arial, sans-serif">true/false</text>
+
+    <text x="700" y="175" fill="#dc2626" font-size="11" font-family="Arial, sans-serif" font-weight="bold">
+      ⬇️ 传递给: STEP 5 作为 {quality_result}; 用于判断迭代终止条件
+    </text>
+  </g>
+
+  <!-- 连接线 -->
+  <path d="M 800,1390 L 800,1420" stroke="#667eea" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- ==================== STEP 5: GAP_ANALYSIS_PROMPT ==================== -->
+  <g transform="translate(50, 1430)">
+    <rect x="0" y="0" width="1500" height="230" rx="10" fill="white" stroke="#ec4899" stroke-width="2" filter="url(#shadow)"/>
+
+    <!-- 标题 -->
+    <rect x="0" y="0" width="1500" height="40" rx="10" fill="#ec4899"/>
+    <text x="30" y="28" fill="white" font-size="16" font-family="Arial, sans-serif" font-weight="bold">
+      STEP 5: GAP_ANALYSIS_PROMPT (缺口分析)
+    </text>
+    <text x="1200" y="28" fill="#fce7f3" font-size="12" font-family="monospace">orchestrator.analyze_gaps()</text>
+
+    <!-- 输入区域 -->
+    <rect x="20" y="55" width="450" height="160" rx="8" fill="#ecfdf5" stroke="#10b981" stroke-width="1"/>
+    <text x="40" y="78" fill="#047857" font-size="14" font-family="Arial, sans-serif" font-weight="bold">📥 输入变量</text>
+
+    <rect x="40" y="95" width="130" height="18" rx="4" fill="url(#inputGrad)"/>
+    <text x="105" y="108" text-anchor="middle" fill="#065f46" font-size="10" font-family="monospace">{original_task}</text>
+    <text x="180" y="108" fill="#374151" font-size="10" font-family="Arial, sans-serif">← 用户原始任务 (STEP 0)</text>
+
+    <rect x="40" y="118" width="130" height="18" rx="4" fill="url(#inputGrad)"/>
+    <text x="105" y="131" text-anchor="middle" fill="#065f46" font-size="10" font-family="monospace">{current_report}</text>
+    <text x="180" y="131" fill="#374151" font-size="10" font-family="Arial, sans-serif">← 当前报告 (STEP 3 或 STEP 7)</text>
+
+    <rect x="40" y="141" width="120" height="18" rx="4" fill="url(#inputGrad)"/>
+    <text x="100" y="154" text-anchor="middle" fill="#065f46" font-size="10" font-family="monospace">{quality_result}</text>
+    <text x="170" y="154" fill="#374151" font-size="10" font-family="Arial, sans-serif">← STEP 4 质量检查结果 (JSON)</text>
+
+    <rect x="40" y="164" width="90" height="18" rx="4" fill="url(#inputGrad)"/>
+    <text x="85" y="177" text-anchor="middle" fill="#065f46" font-size="10" font-family="monospace">{iteration}</text>
+    <text x="140" y="177" fill="#374151" font-size="10" font-family="Arial, sans-serif">← 当前迭代次数 (1,2,3...)</text>
+
+    <rect x="40" y="187" width="120" height="18" rx="4" fill="url(#inputGrad)"/>
+    <text x="100" y="200" text-anchor="middle" fill="#065f46" font-size="10" font-family="monospace">{max_iterations}</text>
+    <text x="170" y="200" fill="#374151" font-size="10" font-family="Arial, sans-serif">← 最大迭代次数 (默认5)</text>
+
+    <!-- LLM处理 -->
+    <rect x="490" y="55" width="200" height="100" rx="8" fill="url(#llmGrad)"/>
+    <text x="590" y="85" text-anchor="middle" fill="white" font-size="14" font-family="Arial, sans-serif" font-weight="bold">🤖 LLM 处理</text>
+    <text x="590" y="108" text-anchor="middle" fill="#fce7f3" font-size="10" font-family="Arial, sans-serif">识别内容缺口</text>
+    <text x="590" y="123" text-anchor="middle" fill="#fce7f3" font-size="10" font-family="Arial, sans-serif">生成补充任务</text>
+    <text x="590" y="138" text-anchor="middle" fill="#fce7f3" font-size="10" font-family="Arial, sans-serif">确定修订重点</text>
+
+    <!-- 箭头 -->
+    <line x1="470" y1="105" x2="485" y2="105" stroke="#667eea" stroke-width="2" marker-end="url(#arrow)"/>
+    <line x1="690" y1="105" x2="725" y2="105" stroke="#fa709a" stroke-width="2" marker-end="url(#arrow-orange)"/>
+
+    <!-- 输出区域 -->
+    <rect x="730" y="55" width="750" height="160" rx="8" fill="#fef3c7" stroke="#f59e0b" stroke-width="1"/>
+    <text x="750" y="78" fill="#92400e" font-size="14" font-family="Arial, sans-serif" font-weight="bold">📤 输出结果 (JSON)</text>
+
+    <rect x="750" y="95" width="110" height="18" rx="3" fill="url(#outputGrad)"/>
+    <text x="805" y="108" text-anchor="middle" fill="#78350f" font-size="10" font-family="monospace">gap_analysis</text>
+    <text x="870" y="108" fill="#713f12" font-size="10" font-family="Arial, sans-serif">missing_aspects, weak_sections, missing_data, shallow_analysis</text>
+
+    <rect x="750" y="118" width="160" height="18" rx="3" fill="url(#outputGrad)"/>
+    <text x="830" y="131" text-anchor="middle" fill="#78350f" font-size="10" font-family="monospace">supplementary_tasks[]</text>
+    <text x="920" y="131" fill="#713f12" font-size="10" font-family="Arial, sans-serif">id, name, description, search_queries, target_gap, priority</text>
+
+    <rect x="750" y="141" width="140" height="18" rx="3" fill="url(#outputGrad)"/>
+    <text x="820" y="154" text-anchor="middle" fill="#78350f" font-size="10" font-family="monospace">refinement_focus[]</text>
+    <text x="900" y="154" fill="#713f12" font-size="10" font-family="Arial, sans-serif">报告修订重点列表</text>
+
+    <text x="750" y="185" fill="#dc2626" font-size="11" font-family="Arial, sans-serif" font-weight="bold">
+      ⬇️ gap_analysis → STEP 7; supplementary_tasks → STEP 6; refinement_focus → STEP 7
+    </text>
+    <text x="750" y="205" fill="#059669" font-size="11" font-family="Arial, sans-serif" font-weight="bold">
+      💡 这就是你问的 {gap_analysis} 的来源！
+    </text>
+  </g>
+
+  <!-- 连接线 -->
+  <path d="M 800,1660 L 800,1690" stroke="#667eea" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- ==================== STEP 6: 补充搜索 ==================== -->
+  <g transform="translate(50, 1700)">
+    <rect x="0" y="0" width="1500" height="150" rx="10" fill="white" stroke="#4facfe" stroke-width="2" filter="url(#shadow)"/>
+
+    <!-- 标题 -->
+    <rect x="0" y="0" width="1500" height="40" rx="10" fill="#4facfe"/>
+    <text x="30" y="28" fill="white" font-size="16" font-family="Arial, sans-serif" font-weight="bold">
+      STEP 6: 补充研究 (复用 SEARCH_WORKER_TASK_PROMPT)
+    </text>
+    <text x="1150" y="28" fill="#e0f2fe" font-size="12" font-family="monospace">orchestrator.dispatch_supplementary_workers()</text>
+
+    <!-- 输入 -->
+    <rect x="20" y="55" width="500" height="80" rx="8" fill="#ecfdf5" stroke="#10b981" stroke-width="1"/>
+    <text x="40" y="78" fill="#047857" font-size="14" font-family="Arial, sans-serif" font-weight="bold">📥 输入</text>
+    <rect x="40" y="95" width="160" height="20" rx="4" fill="url(#inputGrad)"/>
+    <text x="120" y="110" text-anchor="middle" fill="#065f46" font-size="10" font-family="monospace">supplementary_tasks[]</text>
+    <text x="210" y="110" fill="#374151" font-size="10" font-family="Arial, sans-serif">← STEP 5 输出的补充任务列表</text>
+
+    <!-- 处理 -->
+    <rect x="560" y="55" width="200" height="80" rx="8" fill="url(#llmGrad)"/>
+    <text x="660" y="85" text-anchor="middle" fill="white" font-size="14" font-family="Arial, sans-serif" font-weight="bold">🔍 搜索 + 🤖 分析</text>
+    <text x="660" y="108" text-anchor="middle" fill="#fce7f3" font-size="10" font-family="Arial, sans-serif">执行针对性搜索</text>
+    <text x="660" y="123" text-anchor="middle" fill="#fce7f3" font-size="10" font-family="Arial, sans-serif">提取补充信息</text>
+
+    <!-- 箭头 -->
+    <line x1="520" y1="95" x2="555" y2="95" stroke="#667eea" stroke-width="2" marker-end="url(#arrow)"/>
+    <line x1="760" y1="95" x2="795" y2="95" stroke="#fa709a" stroke-width="2" marker-end="url(#arrow-orange)"/>
+
+    <!-- 输出 -->
+    <rect x="800" y="55" width="680" height="80" rx="8" fill="#fef3c7" stroke="#f59e0b" stroke-width="1"/>
+    <text x="820" y="78" fill="#92400e" font-size="14" font-family="Arial, sans-serif" font-weight="bold">📤 输出</text>
+    <rect x="820" y="95" width="170" height="20" rx="4" fill="url(#outputGrad)"/>
+    <text x="905" y="110" text-anchor="middle" fill="#78350f" font-size="10" font-family="monospace">supplementary_results[]</text>
+    <text x="1000" y="110" fill="#713f12" font-size="10" font-family="Arial, sans-serif">← 结构同 STEP 2 的 worker_results</text>
+
+    <text x="820" y="130" fill="#dc2626" font-size="11" font-family="Arial, sans-serif" font-weight="bold">
+      ⬇️ 传递给: STEP 7 作为 {supplementary_results}
+    </text>
+  </g>
+
+  <!-- 连接线 -->
+  <path d="M 800,1850 L 800,1880" stroke="#667eea" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- ==================== STEP 7: REPORT_REFINEMENT_PROMPT ==================== -->
+  <g transform="translate(50, 1890)">
+    <rect x="0" y="0" width="1500" height="250" rx="10" fill="white" stroke="#f59e0b" stroke-width="2" filter="url(#shadow)"/>
+
+    <!-- 标题 -->
+    <rect x="0" y="0" width="1500" height="40" rx="10" fill="#f59e0b"/>
+    <text x="30" y="28" fill="white" font-size="16" font-family="Arial, sans-serif" font-weight="bold">
+      STEP 7: REPORT_REFINEMENT_PROMPT (报告优化)
+    </text>
+    <text x="1200" y="28" fill="#fef3c7" font-size="12" font-family="monospace">orchestrator.refine_report()</text>
+
+    <!-- 输入区域 -->
+    <rect x="20" y="55" width="500" height="180" rx="8" fill="#ecfdf5" stroke="#10b981" stroke-width="1"/>
+    <text x="40" y="78" fill="#047857" font-size="14" font-family="Arial, sans-serif" font-weight="bold">📥 输入变量</text>
+
+    <rect x="40" y="95" width="130" height="18" rx="4" fill="url(#inputGrad)"/>
+    <text x="105" y="108" text-anchor="middle" fill="#065f46" font-size="10" font-family="monospace">{original_task}</text>
+    <text x="180" y="108" fill="#374151" font-size="10" font-family="Arial, sans-serif">← 用户原始任务 (STEP 0)</text>
+
+    <rect x="40" y="118" width="130" height="18" rx="4" fill="url(#inputGrad)"/>
+    <text x="105" y="131" text-anchor="middle" fill="#065f46" font-size="10" font-family="monospace">{original_report}</text>
+    <text x="180" y="131" fill="#374151" font-size="10" font-family="Arial, sans-serif">← 当前报告 (STEP 3 或上轮 STEP 7)</text>
+
+    <rect x="40" y="141" width="110" height="18" rx="4" fill="#f472b6"/>
+    <text x="95" y="154" text-anchor="middle" fill="white" font-size="10" font-family="monospace">{gap_analysis}</text>
+    <text x="160" y="154" fill="#be185d" font-size="10" font-family="Arial, sans-serif" font-weight="bold">← STEP 5 输出的 gap_analysis 对象!</text>
+
+    <rect x="40" y="164" width="170" height="18" rx="4" fill="url(#inputGrad)"/>
+    <text x="125" y="177" text-anchor="middle" fill="#065f46" font-size="10" font-family="monospace">{supplementary_results}</text>
+    <text x="220" y="177" fill="#374151" font-size="10" font-family="Arial, sans-serif">← STEP 6 输出的补充研究结果</text>
+
+    <rect x="40" y="187" width="140" height="18" rx="4" fill="url(#inputGrad)"/>
+    <text x="110" y="200" text-anchor="middle" fill="#065f46" font-size="10" font-family="monospace">{refinement_focus}</text>
+    <text x="190" y="200" fill="#374151" font-size="10" font-family="Arial, sans-serif">← STEP 5 输出的修订重点列表</text>
+
+    <!-- LLM处理 -->
+    <rect x="540" y="55" width="200" height="120" rx="8" fill="url(#llmGrad)"/>
+    <text x="640" y="85" text-anchor="middle" fill="white" font-size="14" font-family="Arial, sans-serif" font-weight="bold">🤖 LLM 处理</text>
+    <text x="640" y="108" text-anchor="middle" fill="#fce7f3" font-size="10" font-family="Arial, sans-serif">整合新发现到报告</text>
+    <text x="640" y="123" text-anchor="middle" fill="#fce7f3" font-size="10" font-family="Arial, sans-serif">强化薄弱章节</text>
+    <text x="640" y="138" text-anchor="middle" fill="#fce7f3" font-size="10" font-family="Arial, sans-serif">更新数据和引用</text>
+    <text x="640" y="153" text-anchor="middle" fill="#fce7f3" font-size="10" font-family="Arial, sans-serif">保持风格一致</text>
+
+    <!-- 箭头 -->
+    <line x1="520" y1="115" x2="535" y2="115" stroke="#667eea" stroke-width="2" marker-end="url(#arrow)"/>
+    <line x1="740" y1="115" x2="775" y2="115" stroke="#fa709a" stroke-width="2" marker-end="url(#arrow-orange)"/>
+
+    <!-- 输出区域 -->
+    <rect x="780" y="55" width="700" height="180" rx="8" fill="#fef3c7" stroke="#f59e0b" stroke-width="1"/>
+    <text x="800" y="78" fill="#92400e" font-size="14" font-family="Arial, sans-serif" font-weight="bold">📤 输出结果 (Markdown String)</text>
+
+    <rect x="800" y="100" width="120" height="22" rx="4" fill="url(#outputGrad)"/>
+    <text x="860" y="116" text-anchor="middle" fill="#78350f" font-size="11" font-family="monospace">refined_report</text>
+    <text x="930" y="116" fill="#713f12" font-size="11" font-family="Arial, sans-serif">优化后的完整 Markdown 报告</text>
+
+    <text x="800" y="150" fill="#713f12" font-size="11" font-family="Arial, sans-serif">• 新信息已整合到相关章节</text>
+    <text x="800" y="168" fill="#713f12" font-size="11" font-family="Arial, sans-serif">• 引用编号已更新 (新来源追加在末尾)</text>
+    <text x="800" y="186" fill="#713f12" font-size="11" font-family="Arial, sans-serif">• 参考来源章节已更新</text>
+
+    <text x="800" y="220" fill="#dc2626" font-size="11" font-family="Arial, sans-serif" font-weight="bold">
+      🔄 返回 STEP 4 进入下一轮迭代，或作为最终报告输出
+    </text>
+  </g>
+
+  <!-- 迭代循环箭头 -->
+  <path d="M 1530,2000 L 1560,2000 L 1560,1260 L 1530,1260" stroke="#ef4444" stroke-width="3" fill="none" stroke-dasharray="8,4"/>
+  <polygon points="1530,1255 1540,1260 1530,1265" fill="#ef4444"/>
+  <text x="1565" y="1630" fill="#ef4444" font-size="12" font-family="Arial, sans-serif" font-weight="bold" transform="rotate(90, 1565, 1630)">迭代循环</text>
+
+  <!-- 最终输出 -->
+  <g transform="translate(50, 2160)">
+    <rect x="0" y="0" width="1500" height="100" rx="10" fill="#d1fae5" stroke="#10b981" stroke-width="3" filter="url(#shadow)"/>
+    <text x="30" y="35" fill="#047857" font-size="18" font-family="Arial, sans-serif" font-weight="bold">🎉 最终输出</text>
+    <text x="30" y="60" fill="#065f46" font-size="14" font-family="Arial, sans-serif">
+      当 iteration ≥ min_iterations (2) 且 quality_score ≥ threshold (80) 时，迭代结束
+    </text>
+    <text x="30" y="85" fill="#065f46" font-size="14" font-family="Arial, sans-serif">
+      final_report = 最后一轮的 refined_report (Markdown) → 保存到文件 + 返回给用户
+    </text>
+  </g>
+
+  <!-- 数据流总结 -->
+  <g transform="translate(50, 2280)">
+    <rect x="0" y="0" width="1500" height="100" rx="10" fill="#fef3c7" stroke="#f59e0b" stroke-width="2" filter="url(#shadow)"/>
+    <text x="30" y="30" fill="#92400e" font-size="16" font-family="Arial, sans-serif" font-weight="bold">📋 {gap_analysis} 数据流总结</text>
+    <text x="30" y="55" fill="#78350f" font-size="13" font-family="Arial, sans-serif">
+      STEP 5 (GAP_ANALYSIS_PROMPT) 分析报告缺口 → 输出 gap_analysis 对象 (missing_aspects, weak_sections, missing_data, shallow_analysis)
+    </text>
+    <text x="30" y="78" fill="#78350f" font-size="13" font-family="Arial, sans-serif">
+      → STEP 7 (REPORT_REFINEMENT_PROMPT) 使用 {gap_analysis} 告诉 LLM 报告哪些地方需要加强，指导报告优化方向
+    </text>
+  </g>
+
+</svg>

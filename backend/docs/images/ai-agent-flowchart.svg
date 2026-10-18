@@ -1,0 +1,127 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 900">
+  <!-- Background for the loop section -->
+  <rect x="5" y="300" width="500" height="500" fill="#FFFBE6" rx="10" ry="10" />
+  <text x="250" y="330" font-family="Arial" font-size="16" text-anchor="middle" font-weight="bold">Agent执行循环</text>
+  
+  <!-- Boxes and arrows for the flow chart -->
+  <!-- Start -->
+  <rect x="200" y="30" width="200" height="50" fill="#E6E6FA" stroke="#9370DB" stroke-width="2" rx="5" ry="5" />
+  <text x="300" y="60" font-family="Arial" font-size="14" text-anchor="middle">用户输入需求</text>
+  
+  <!-- Arrow -->
+  <line x1="300" y1="80" x2="300" y2="110" stroke="#000" stroke-width="2" />
+  <polygon points="300,120 295,110 305,110" fill="#000" />
+  
+  <!-- Process input -->
+  <rect x="200" y="120" width="200" height="50" fill="#E6E6FA" stroke="#9370DB" stroke-width="2" rx="5" ry="5" />
+  <text x="300" y="150" font-family="Arial" font-size="14" text-anchor="middle">AI Agent接收请求</text>
+  
+  <!-- Arrow -->
+  <line x1="300" y1="170" x2="300" y2="200" stroke="#000" stroke-width="2" />
+  <polygon points="300,210 295,200 305,200" fill="#000" />
+  
+  <!-- Plan -->
+  <rect x="150" y="210" width="300" height="60" fill="#E6E6FA" stroke="#9370DB" stroke-width="2" rx="5" ry="5" />
+  <text x="300" y="240" font-family="Arial" font-size="14" text-anchor="middle">使用规划模块制定行动计划</text>
+  <text x="300" y="260" font-family="Arial" font-size="14" text-anchor="middle">并分解任务</text>
+  
+  <!-- Arrow -->
+  <line x1="300" y1="270" x2="300" y2="340" stroke="#000" stroke-width="2" />
+  <polygon points="300,350 295,340 305,340" fill="#000" />
+  
+  <!-- Loop Tasks Section -->
+  <!-- Think -->
+  <rect x="200" y="350" width="200" height="50" fill="#E6E6FA" stroke="#9370DB" stroke-width="2" rx="5" ry="5" />
+  <text x="300" y="380" font-family="Arial" font-size="14" text-anchor="middle">推理与规划</text>
+  
+  <!-- Arrow -->
+  <line x1="300" y1="400" x2="300" y2="430" stroke="#000" stroke-width="2" />
+  <polygon points="300,440 295,430 305,430" fill="#000" />
+  
+  <!-- Decision -->
+  <rect x="200" y="440" width="200" height="50" fill="#E6E6FA" stroke="#9370DB" stroke-width="2" rx="5" ry="5" />
+  <text x="300" y="470" font-family="Arial" font-size="14" text-anchor="middle">有待执行任务?</text>
+  
+  <!-- Yes arrow -->
+  <line x1="250" y1="490" x2="250" y2="520" stroke="#000" stroke-width="2" />
+  <polygon points="250,530 245,520 255,520" fill="#000" />
+  <text x="230" y="510" font-family="Arial" font-size="12">是</text>
+  
+  <!-- No arrow -->
+  <line x1="350" y1="465" x2="430" y2="465" stroke="#000" stroke-width="2" />
+  <line x1="430" y1="465" x2="430" y2="650" stroke="#000" stroke-width="2" />
+  <polygon points="430,660 425,650 435,650" fill="#000" />
+  <text x="380" y="455" font-family="Arial" font-size="12">否</text>
+  
+  <!-- Execute -->
+  <rect x="150" y="530" width="200" height="50" fill="#E6E6FA" stroke="#9370DB" stroke-width="2" rx="5" ry="5" />
+  <text x="250" y="560" font-family="Arial" font-size="14" text-anchor="middle">选择并执行下一个任务</text>
+  
+  <!-- Arrow -->
+  <line x1="250" y1="580" x2="250" y2="610" stroke="#000" stroke-width="2" />
+  <polygon points="250,620 245,610 255,610" fill="#000" />
+  
+  <!-- Tools -->
+  <rect x="100" y="620" width="300" height="70" fill="#E6E6FA" stroke="#9370DB" stroke-width="2" rx="5" ry="5" />
+  <text x="250" y="645" font-family="Arial" font-size="14" text-anchor="middle">Agent调用工具执行任务</text>
+  <text x="250" y="665" font-family="Arial" font-size="14" text-anchor="middle">获取结果并记录到记忆模块</text>
+  
+  <!-- Arrow -->
+  <line x1="250" y1="690" x2="250" y2="720" stroke="#000" stroke-width="2" />
+  <polygon points="250,730 245,720 255,720" fill="#000" />
+  
+  <!-- Update -->
+  <rect x="150" y="730" width="200" height="50" fill="#E6E6FA" stroke="#9370DB" stroke-width="2" rx="5" ry="5" />
+  <text x="250" y="760" font-family="Arial" font-size="14" text-anchor="middle">Agent更新规划</text>
+  
+  <!-- Memory Module -->
+  <rect x="500" y="450" width="80" height="150" fill="#E6FAFF" stroke="#4682B4" stroke-width="2" rx="5" ry="5" />
+  <text x="540" y="500" font-family="Arial" font-size="14" text-anchor="middle" writing-mode="tb">记忆模块</text>
+  <text x="540" y="570" font-family="Arial" font-size="14" text-anchor="middle" writing-mode="tb">存储执行历史</text>
+  
+  <!-- Arrows to/from Memory Module -->
+  <line x1="400" y1="650" x2="500" y2="550" stroke="#000" stroke-width="2" stroke-dasharray="5,5" />
+  <polygon points="505,545 497,547 503,553" fill="#000" />
+  <line x1="500" y1="500" x2="350" y2="450" stroke="#000" stroke-width="2" stroke-dasharray="5,5" />
+  <polygon points="340,445 347,443 353,457" fill="#000" />
+  
+  <!-- Loop back arrow -->
+  <path d="M 150,755 Q 50,755 50,500 Q 50,380 200,380" fill="none" stroke="#000" stroke-width="2" />
+  <polygon points="210,380 200,375 200,385" fill="#000" />
+  
+  <!-- Done section -->
+  <rect x="330" y="660" width="200" height="50" fill="#E6E6FA" stroke="#9370DB" stroke-width="2" rx="5" ry="5" />
+  <text x="430" y="690" font-family="Arial" font-size="14" text-anchor="middle">所有任务完成</text>
+  
+  <!-- Arrow -->
+  <line x1="430" y1="710" x2="430" y2="740" stroke="#000" stroke-width="2" />
+  <polygon points="430,750 425,740 435,740" fill="#000" />
+  
+  <!-- Results -->
+  <rect x="330" y="750" width="200" height="50" fill="#E6E6FA" stroke="#9370DB" stroke-width="2" rx="5" ry="5" />
+  <text x="430" y="780" font-family="Arial" font-size="14" text-anchor="middle">整理输出</text>
+  
+  <!-- Arrow -->
+  <line x1="430" y1="800" x2="430" y2="830" stroke="#000" stroke-width="2" />
+  <polygon points="430,840 425,830 435,830" fill="#000" />
+  
+  <!-- Provide to user -->
+  <rect x="330" y="840" width="200" height="50" fill="#E6E6FA" stroke="#9370DB" stroke-width="2" rx="5" ry="5" />
+  <text x="430" y="870" font-family="Arial" font-size="14" text-anchor="middle">提供结果给用户</text>
+  
+  <!-- Arrow -->
+  <line x1="430" y1="890" x2="430" y2="915" stroke="#000" stroke-width="2" />
+  <polygon points="430,925 425,915 435,915" fill="#000" />
+  
+  <!-- Feedback -->
+  <rect x="330" y="925" width="200" height="50" fill="#E6E6FA" stroke="#9370DB" stroke-width="2" rx="5" ry="5" />
+  <text x="430" y="955" font-family="Arial" font-size="14" text-anchor="middle">收集反馈</text>
+  
+  <!-- Arrow -->
+  <line x1="430" y1="975" x2="430" y2="1000" stroke="#000" stroke-width="2" />
+  <polygon points="430,1010 425,1000 435,1000" fill="#000" />
+  
+  <!-- End -->
+  <rect x="330" y="1010" width="200" height="50" fill="#E6E6FA" stroke="#9370DB" stroke-width="2" rx="5" ry="5" />
+  <text x="430" y="1040" font-family="Arial" font-size="14" text-anchor="middle">结束</text>
+</svg>
