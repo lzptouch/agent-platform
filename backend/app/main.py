@@ -24,9 +24,9 @@ from app.core.config import PROJECT_ROOT, settings
 from app.core.state import init_app_state
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(name)s | %(message)s")
-logger = logging.getLogger("agent-platform")
+logger = logging.getLogger("agent")
 
-# 前端生产构建产物目录（apps/agent-platform/frontend/dist）
+# 前端生产构建产物目录（apps/agent/frontend/dist）
 FRONTEND_DIST = PROJECT_ROOT.parent / "frontend" / "dist"
 
 

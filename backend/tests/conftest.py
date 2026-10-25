@@ -14,7 +14,7 @@ import pytest
 
 from app.core.config import settings
 
-_TMP_DIR = Path(tempfile.mkdtemp(prefix="agent-platform-test-"))
+_TMP_DIR = Path(tempfile.mkdtemp(prefix="agent-test-"))
 
 
 @pytest.fixture(scope="session", autouse=True)

@@ -1,10 +1,10 @@
-# Agent Platform
+# agent
 
-统一 Agent 平台，整合四个学习项目为 **5 条能力链**（Skill / MCP / RAG / Web Research / Deep Research）。
+整合 **5 条能力链**（Skill / MCP / RAG / Web Research / Deep Research）的 Agent 平台。
 前后端分离：**`backend/`（FastAPI）** 与 **`frontend/`（Vue 3 + Vite）** 为同级独立项目。
 
 ```
-agent-platform/
+agent/
 ├── backend/                 # FastAPI 后端（Python 3.10~3.12）
 │   ├── app/                 #   应用代码（api / services / mcp / schemas / core）
 │   ├── skills/              #   6 个 Agent Skill
@@ -151,7 +151,7 @@ deploy/
 ├── backend/entrypoint.sh
 ├── frontend/Dockerfile             # 前端多阶段构建：node build → nginx 运行
 ├── nginx/nginx.conf
-├── nginx/conf.d/agent-platform.conf# 静态托管 + /api 反代 + SSE 支持
+├── nginx/conf.d/agent.conf# 静态托管 + /api 反代 + SSE 支持
 └── docker-compose.milvus.yml       # 可选：独立 Milvus 集群（etcd + minio + milvus）
 ```
 
@@ -166,7 +166,7 @@ docker compose up -d
 访问：<http://localhost:8080/>（Nginx 对外唯一入口：`/` 静态前端，`/api/v1/*` 反代到后端，
 `/docs` 为 Swagger）。对外端口可用 `HOST_HTTP_PORT=80 docker compose up -d` 修改。
 
-向量库默认用嵌入式 Milvus Lite（`data/milvus.db`），数据统一落在命名卷 `agent-platform-data`；
+向量库默认用嵌入式 Milvus Lite（`data/milvus.db`），数据统一落在命名卷 `agent-data`；
 需要正式版 Milvus 时叠加覆盖文件即可：
 
 ```bash

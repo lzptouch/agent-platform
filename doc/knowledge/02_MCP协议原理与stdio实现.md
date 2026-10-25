@@ -1,7 +1,7 @@
 # MCP 协议原理与 stdio 实现（扩充版）
 
 > - **整理日期**：2026-09-15（首发 2026-09-15 扩充）
-> - **依据项目**：`apps/agent-platform/backend/app/mcp/servers/{weather,search,xiaohongshu}_server.py` + `services/mcp_manager.py`
+> - **依据项目**：`apps/agent/backend/app/mcp/servers/{weather,search,xiaohongshu}_server.py` + `services/mcp_manager.py`
 > - **资料来源**：Anthropic MCP 官方文档 + FastMCP Python SDK + MCP Python SDK + Claude Desktop MCP + JSON-RPC 2.0
 
 ---
@@ -461,7 +461,7 @@ class MCPMarketplace:
 | [9] | 标准 | LSP（类比） | https://microsoft.github.io/language-server-protocol/ | 2026-09-15 |
 | [10] | 官方文档 | NWS API | https://www.weather.gov/documentation/services-web-api | 2026-09-15 |
 | [11] | 官方文档 | Serper API | https://serper.dev | 2026-09-15 |
-| [12] | 同源文档 | `apps/agent-platform/backend/docs/mcp/` | 项目内能力链文档 | 2026-09-15 |
+| [12] | 同源文档 | `apps/agent/backend/docs/mcp/` | 项目内能力链文档 | 2026-09-15 |
 
 ---
 

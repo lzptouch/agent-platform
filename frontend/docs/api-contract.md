@@ -75,7 +75,7 @@
 - `base: '/'`（不可配子路径）
 - 资源引用为 `/assets/...` 绝对路径
 
-证据：`main.py:85` 只 mount `/assets`；Nginx `location ^~ /assets/`（`conf.d/agent-platform.conf:91-96`）只对 `/assets/` 设长缓存。
+证据：`main.py:85` 只 mount `/assets`；Nginx `location ^~ /assets/`（`conf.d/agent.conf:91-96`）只对 `/assets/` 设长缓存。
 
 ## 5. 端点速查
 

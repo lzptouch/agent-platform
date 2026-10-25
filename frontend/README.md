@@ -1,6 +1,6 @@
 # frontend/ · 默认前端
 
-`apps/agent-platform/frontend/` 只保留**一个**前端实现：
+`apps/agent/frontend/` 只保留**一个**前端实现：
 
 ```
 frontend/

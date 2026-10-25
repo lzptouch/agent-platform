@@ -1,8 +1,8 @@
 # =====================================================================
-# Agent Platform · 前端镜像（默认前端构建 + Nginx 托管）
+# agent · 前端镜像（默认前端构建 + Nginx 托管）
 #
-# 构建上下文必须是仓库根目录（agent-platform/）：
-#   docker build -f deploy/frontend/Dockerfile -t agent-platform-web:1.1.0 .
+# 构建上下文必须是仓库根目录（agent/）：
+#   docker build -f deploy/frontend/Dockerfile -t agent-web:1.1.0 .
 #
 # 构建对象：仓库中唯一的前端实现 frontend/web/vue-element-plus
 #
@@ -39,7 +39,7 @@ RUN mkdir -p /var/cache/nginx/client_temp /var/log/nginx \
 
 # Nginx 配置
 COPY deploy/nginx/nginx.conf            /etc/nginx/nginx.conf
-COPY deploy/nginx/conf.d/agent-platform.conf /etc/nginx/conf.d/default.conf
+COPY deploy/nginx/conf.d/agent.conf /etc/nginx/conf.d/default.conf
 
 # 前端构建产物（由 builder 阶段产出）
 COPY --from=builder /build/dist /usr/share/nginx/html

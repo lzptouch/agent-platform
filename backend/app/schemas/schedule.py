@@ -13,7 +13,9 @@ class ScheduleCreate(BaseModel):
     mode: Literal["chat", "work"] = "work"
     plan_first: bool = False
     team_id: str | None = None
-    skills: list[str] = Field(default_factory=list)
+    # 与 RunRequest.skills 语义对齐：null = 不限定（work 全部 / chat 不加载），
+    # [] = 不加载任何 Skill，列表 = 仅启用列出的 Skill。
+    skills: list[str] | None = None
     enable_mcp: bool = False
     mcp_servers: list[str] = Field(default_factory=list)
     enable_rag: bool = False

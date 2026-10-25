@@ -33,7 +33,8 @@ export const agentChat = (payload: AgentChatRequest) =>
 // ===== Skills =====
 export const skillsList = () => get<SkillListResp>(Endpoints.skillsList)
 export const skillDetail = (name: string) => get<SkillDetail>(Endpoints.skillDetail(name))
-export const skillValidate = (name: string) => get<ValidationResult>(Endpoints.skillValidate(name))
+// 后端仅注册 POST /skills/{name}/validate（GET 会 404）
+export const skillValidate = (name: string) => post<ValidationResult>(Endpoints.skillValidate(name))
 export const skillsReload = () => post<{ reloaded: number; skills: string[] }>(Endpoints.skillsReload, {})
 
 // ===== Files =====

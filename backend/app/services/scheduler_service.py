@@ -284,7 +284,7 @@ class SchedulerService:
                 mode=data.mode,
                 plan_first=1 if data.plan_first else 0,
                 team_id=data.team_id,
-                skills_json=json.dumps(data.skills, ensure_ascii=False),
+                skills_json=json.dumps(data.skills or [], ensure_ascii=False),
                 enable_json=json.dumps({
                     "mcp": data.enable_mcp, "mcp_servers": data.mcp_servers,
                     "rag": data.enable_rag, "web": data.enable_web_research,

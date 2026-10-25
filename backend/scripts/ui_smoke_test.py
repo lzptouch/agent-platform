@@ -1,4 +1,4 @@
-"""agent-platform 前后端联调测试（Playwright）。
+"""agent 前后端联调测试（Playwright）。
 
 用法::
 
@@ -77,7 +77,7 @@ def main() -> int:
         page.wait_for_timeout(1200)
         page.screenshot(path=f"{SHOT}/01-chat-view.png", full_page=True)
 
-        check("页面标题正确", "Agent Platform" in page.title() or "Agent" in page.title(), page.title())
+        check("页面标题正确", "agent" in page.title() or "Agent" in page.title(), page.title())
         check("侧边栏模式 Tab 存在", page.locator(".mode-tab").count() == 2,
               f"{page.locator('.mode-tab').count()} 个")
 

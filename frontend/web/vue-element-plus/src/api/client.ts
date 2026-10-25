@@ -107,7 +107,17 @@ export async function request<T = unknown>(path: string, opts: RequestOptions = 
     throw new ApiError(202, classify(202, detail), path)
   }
 
-  return resp.json() as Promise<T>
+  // 204 No Content / 空响应体：DELETE 类接口常见，不能直接 res.json()
+  // （否则抛 "Unexpected end of JSON input"，导致删除操作被误判为失败）
+  if (resp.status === 204) return null as T
+
+  const raw = await resp.text()
+  if (!raw) return null as T
+  try {
+    return JSON.parse(raw) as T
+  } catch {
+    return raw as unknown as T
+  }
 }
 
 export const get  = <T>(path: string, opts?: Omit<RequestOptions, 'method'|'body'|'formData'>) =>

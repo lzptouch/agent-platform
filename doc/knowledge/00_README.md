@@ -1,15 +1,15 @@
-# agent-platform knowledge 目录索引（扩充版）
+# agent knowledge 目录索引（扩充版）
 
-> - **依据项目**：`apps/agent-platform/`（统一 Agent 平台 5 能力链）
+> - **依据项目**：`apps/agent/`（统一 Agent 平台 5 能力链）
 > - **资料来源**：本项目代码（2026-09-15 探查）+ Anthropic MCP 官方文档 + Langfuse 官方 + AutoGen/CrewAI 仓库 + Milvus Lite 官方
 > - **整理日期**：2026-09-15（首发 2026-09-15 扩充）
-> - **本目录定位**：agent-platform 涉及的通用原理 + 项目独有技术沉淀；按主题分层 + 按问题反查双索引
+> - **本目录定位**：agent 涉及的通用原理 + 项目独有技术沉淀；按主题分层 + 按问题反查双索引
 
 ---
 
 ## 一、按主题分层
 
-### ① 项目独有技术（深度剖析 agent-platform 内部实现）
+### ① 项目独有技术（深度剖析 agent 内部实现）
 
 | 编号 | 文档 | 主题 | 关键价值 |
 |------|------|------|---------|
@@ -25,21 +25,21 @@
 
 | 编号 | 文档 | 关联项目 | 本项目实践要点 |
 |------|------|---------|--------------|
-| 10 | API 鉴权机制 | Agent3 / industry_information_assistant | **未启用鉴权**（CORS 全开 + 无 JWT）—— 单机 POC 设计；生产需补 |
+| 10 | API 鉴权机制 | finance-report / industry-research | **未启用鉴权**（CORS 全开 + 无 JWT）—— 单机 POC 设计；生产需补 |
 | 11 | 中间件与安全架构（CORS） | 全部项目 | `app/main.py:62` `allow_origins=["*"]` 是 OWASP API8 风险点 |
 | 12 | 流式处理与异步（asyncio/SSE） | 全部项目 | 后端 `StreamingResponse` + 前端自研 `readSSE` 逐事件解析 |
 | 13 | 可观测性体系设计（OTel） | 全部项目 | 已集成 Langfuse OTel；缺 Prometheus + 链路追踪 |
-| 14 | 数据库选型与持久化策略 | industry_information_assistant | **无 PG**！用 Milvus Lite（数据）+ 本地 JSON（任务）+ Redis 未集成 |
-| 15 | RAG 与向量检索原理 | Agent3 / industry_information_assistant | Milvus BM25 Function + Dense hybrid；Embedding 走 DashScope API |
+| 14 | 数据库选型与持久化策略 | industry-research | **无 PG**！用 Milvus Lite（数据）+ 本地 JSON（任务）+ Redis 未集成 |
+| 15 | RAG 与向量检索原理 | finance-report / industry-research | Milvus BM25 Function + Dense hybrid；Embedding 走 DashScope API |
 | 16 | LLM 输出可靠性工程 | 全部项目 | function calling JSON 解析；plan/reflection 兜底；tool_result 异常处理 |
 | 17 | Python 后端项目分层与配置规范 | 全部项目 | `app/{api,core,mcp,services,schemas}/` 分层；pydantic-settings + @lru_cache 单例 |
-| 18 | 多数据源一致性设计模式 | industry_information_assistant | 仅 Milvus + 文件 JSON，**实际无强一致性诉求** |
+| 18 | 多数据源一致性设计模式 | industry-research | 仅 Milvus + 文件 JSON，**实际无强一致性诉求** |
 
 ### ③ 前端专题（跨项目共用基础）
 
 | 编号 | 文档 | 主题 | 关键价值 |
 |------|------|------|---------|
-| 20 | Vue 3 `<script setup>` 极简前端模式 | 8 组件 + SPA | 与 SalesPilot 的 React 模式对比 |
+| 20 | Vue 3 `<script setup>` 极简前端模式 | 8 组件 + SPA | 与 sales 的 React 模式对比 |
 | 21 | 自研 SSE 消费器（readSSE） | `api.js:30-50` | 与 EventSource / fetch-event-source 对比 |
 | 22 | Tool 来源着色与可视化 | 4 链开关 UI（青/紫/绿/橙） | 设计模式借鉴 |
 | 23 | 单端口部署：FastAPI 托管前端 dist | `app/main.py:84` SPA fallback | 与 nginx 反代模式对比 |
@@ -80,7 +80,7 @@
 
 ---
 
-## 三、agent-platform 项目独有亮点总结
+## 三、agent 项目独有亮点总结
 
 ### 3.1 五条能力链（核心）
 

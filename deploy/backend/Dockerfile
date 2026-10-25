@@ -1,8 +1,8 @@
 # =====================================================================
-# Agent Platform · 后端镜像（FastAPI / Uvicorn）
+# agent · 后端镜像（FastAPI / Uvicorn）
 #
-# 构建上下文必须是仓库根目录（agent-platform/）：
-#   docker build -f deploy/backend/Dockerfile -t agent-platform-backend:1.1.0 .
+# 构建上下文必须是仓库根目录（agent/）：
+#   docker build -f deploy/backend/Dockerfile -t agent-backend:1.1.0 .
 #
 # 主要依赖（见 backend/requirements.txt）：
 #   - Web：fastapi + uvicorn[standard]

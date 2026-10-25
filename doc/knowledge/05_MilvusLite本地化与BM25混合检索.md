@@ -1,7 +1,7 @@
 # Milvus Lite 本地化与 BM25 混合检索（扩充版）
 
 > - **整理日期**：2026-09-15（首发 2026-09-15 扩充）
-> - **依据项目**：`apps/agent-platform/backend/app/services/rag/` + `config.py`
+> - **依据项目**：`apps/agent/backend/app/services/rag/` + `config.py`
 > - **资料来源**：Milvus 官方文档 + Milvus Lite + BM25 论文 + RRF 论文 + Qdrant + Weaviate + LanceDB
 
 ---
@@ -391,8 +391,8 @@ class Reranker:
 | [10] | 官方文档 | LanceDB | https://lancedb.github.io/lancedb/ | 2026-09-15 |
 | [11] | OSS 库 | sentence-transformers (CrossEncoder) | https://github.com/UKPLab/sentence-transformers | 2026-09-15 |
 | [12] | 官方文档 | DashScope Embedding | https://help.aliyun.com/zh/model-studio/developer-reference/use-embedding-by-calling-api | 2026-09-15 |
-| [13] | 同源文档 | `apps/financial-report-agent/backend/app/tools/rag_search.py` | 内存 RAG 对比 | 2026-09-15 |
-| [14] | 同源文档 | `apps/industry-research-assistant/doc/analysis/04_五端一致性.md` | PG + Milvus Server | 2026-09-15 |
+| [13] | 同源文档 | `apps/finance-report/backend/app/tools/rag_search.py` | 内存 RAG 对比 | 2026-09-15 |
+| [14] | 同源文档 | `apps/industry-research/doc/analysis/04_五端一致性.md` | PG + Milvus Server | 2026-09-15 |
 
 ---
 

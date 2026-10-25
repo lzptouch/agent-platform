@@ -49,8 +49,15 @@ export const useSessionStore = defineStore('session', () => {
     await loadSessions()
   }
 
-  async function newSession(): Promise<Session> {
-    const sess = await sessionCreate({ mode: mode.value })
+  /**
+   * 新建会话。
+   * @param nextMode 显式指定会话模式；缺省沿用当前 store 模式。
+   *        v3 工作台中「计划 Plan」需要 work 模式会话（plan_first 单独控制），
+   *        因此允许调用方覆盖，避免建出 chat 会话却按 work 发送。
+   */
+  async function newSession(nextMode?: AgentMode): Promise<Session> {
+    const m = nextMode ?? mode.value
+    const sess = await sessionCreate({ mode: m })
     sessions.value = [sess, ...sessions.value]
     currentSessionId.value = sess.id
     persist()

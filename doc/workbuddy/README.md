@@ -1,6 +1,6 @@
 # WorkBuddy 能力扩展方案（v2 · 代码校验后修订版）
 
-本目录为 `agent-platform` 对标 WorkBuddy 的能力扩展设计与实施计划。
+本目录为 `agent` 对标 WorkBuddy 的能力扩展设计与实施计划。
 
 ## 文档索引
 

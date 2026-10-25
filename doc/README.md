@@ -1,6 +1,6 @@
-# agent-platform 文档集
+# agent 文档集
 
-> **项目定位**：统一 Agent 平台，整合 4 个学习项目为 5 条能力链（**Skill / MCP / RAG / Web Research / Deep Research**）。FastAPI 后端 + Vue 3 前端，单端口部署。
+> **项目定位**：agent 平台，提供 5 条能力链（**Skill / MCP / RAG / Web Research / Deep Research**）。FastAPI 后端 + Vue 3 前端，单端口部署。
 > **文档集范围**：`doc/`（本目录，主题分析与通用原理）+ `deploy/`（随代码维护的部署手册）
 > + `backend/docs/`（按能力链细分）+ `frontend/docs/`（接口契约与 SSE 协议）。
 
@@ -19,6 +19,7 @@
 | analysis | 09 | [代码规范.md](./analysis/09_代码规范.md) | pydantic-settings + Vue 3 + Ruff/mypy |
 | analysis | 10 | [功能覆盖矩阵.md](./analysis/10_功能覆盖矩阵.md) | 三源项目（agent skill / MCP / webResearch）逐项功能对照与验证结论 |
 | analysis | 11 | [deepResearch 整合分析](./analysis/11_deepResearch整合分析.md) | deep_research 融入方案：架构契合度 / 迁移计划 / 风险与验收 |
+| analysis | 12 | [前端对标 WorkBuddy 与 Trae 工作版](./analysis/12_前端对标WorkBuddy与Trae工作版.md) | v3.1：取证 + 7 条设计公理 + 差异矩阵 + 自评勘误 + 7 阶段计划 + 实施落地 + **全量测试报告**（后端 69/69 接口、契约 58/58、单测 17/17、E2E 121 项全绿） |
 | **knowledge** | 00 | [README.md](./knowledge/00_README.md) | 项目独有技术 + 通用原理 + 前端专题 双索引 |
 | knowledge | 01 | [Skill 注册表与四级 Skill 设计](./knowledge/01_Skill注册表与四级Skill设计.md) | SkillManager + 渐进式披露 + 6 Skill |
 | knowledge | 02 | [MCP 协议原理与 stdio 实现](./knowledge/02_MCP协议原理与stdio实现.md) | MCPManager + 3 stdio Server + 工具反射 |
@@ -30,7 +31,7 @@
 | **deployment** | 00 | [导览与总览](./deployment/00_导览与总览.md) | 部署形态 / 组件与端口 / deploy 文件地图 / 配置项 / 快速开始 |
 | deployment | 07 | [故障排查手册](./deployment/07_故障排查手册.md) | 按症状检索的避坑清单（Compose / 构建 / 反代与 SSE / Windows） |
 
-**总计**：11 篇 analysis + 8 篇 knowledge（含 00_README 索引）+ 2 篇 deployment = **21 篇**
+**总计**：12 篇 analysis + 8 篇 knowledge（含 00_README 索引）+ 2 篇 deployment = **22 篇**
 
 > 部署手册随代码维护，放在 `deploy/` 而非本目录：
 > [`deploy/README.md`](../deploy/README.md)（架构 + 步骤 + 排错 + 实测）与
@@ -46,6 +47,8 @@
 - **LLM 应用工程师**：knowledge 03 + knowledge 07（Langfuse）
 - **验收 / 回归**：[analysis/10_功能覆盖矩阵.md](./analysis/10_功能覆盖矩阵.md)（功能完整性核查）
 - **接手第 5 链**：[analysis/11_deepResearch 整合分析](./analysis/11_deepResearch整合分析.md)
+- **改造前端形态**：[analysis/12_前端对标 WorkBuddy 与 Trae 工作版](./analysis/12_前端对标WorkBuddy与Trae工作版.md)
+  （含官方真实界面取证截图 `doc/analysis/assets/`、差异矩阵、合理性自评勘误与 7 阶段改造计划）
 - **运维 / 交付**：先读 [deployment/00_导览与总览.md](./deployment/00_导览与总览.md)（形态、端口、文件地图、快速开始），
   构建与运维细节见 [`deploy/README.md`](../deploy/README.md) 与
   [`deploy/部署文件分析与操作手册.md`](../deploy/部署文件分析与操作手册.md)；
@@ -84,7 +87,7 @@
 ## 版本信息
 
 - 文档生成时间：2026-09-15（analysis 01~09 / knowledge）；2026-10-18（deployment 重写）；2026-10-19（analysis 10/11 并入、前端收敛复核）
-- 对应代码版本：截至 2026-09-15 agent-platform 仓库内容（analysis 01~09 / knowledge）；
+- 对应代码版本：截至 2026-09-15 agent 仓库内容（analysis 01~09 / knowledge）；
   `docker-compose.yml` + `deploy/**`（deployment，2026-10-18 复核）；前端收敛为唯一实现 `frontend/web/vue-element-plus`（2026-10-19）
 - 文档作者：本工作会话
 - 维护方式：随源代码演进，每个文档头部注明「整理日期」+ 「对照当前代码复核：xxx」

@@ -1,5 +1,5 @@
 [project]
-name = "agent-platform"
+name = "agent"
 version = "0.1.0"
 description = "统一 Agent 平台：MCP 协议 + Skill 体系 + RAG + Web Research"
 requires-python = ">=3.10,<3.13"

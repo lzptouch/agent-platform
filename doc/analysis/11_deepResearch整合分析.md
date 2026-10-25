@@ -1,6 +1,6 @@
-# deepResearch 整合分析（融入 agent-platform）
+# deepResearch 整合分析（融入 agent）
 
-> **分析范围**：`大模型部署与应用开发/deep_research/`（核心 7 个 .py = **4102 行**）→ `apps/apps/agent-platform/`
+> **分析范围**：`大模型部署与应用开发/deep_research/`（核心 7 个 .py = **4102 行**）→ `apps/apps/agent/`
 > **分析时间**：2026-09-15　|　**结论**：✅ 强可行，建议作为 **第 5 条"深度研究链"** 整合，工时约 **3-3.5 天**
 > **架构契合度**：高（核心范式 Orchestrator-Workers + OODA 与现有 Agent 循环互补，且都用 DashScope OpenAI 兼容协议）
 
@@ -10,7 +10,7 @@
 
 - [0. 核查修订说明（v1.1）](#0-核查修订说明v11) ⭐ 新增
 - [1. deep_research 项目快照](#1-deep_research-项目快照)
-- [2. 与 agent-platform 的重叠 / 互补 / 差异](#2-与-agent-platform-的重叠--互补--差异)
+- [2. 与 agent 的重叠 / 互补 / 差异](#2-与-agent-的重叠--互补--差异)
 - [3. 整合架构设计](#3-整合架构设计)
 - [4. URL 设计与请求/响应模型](#4-url-设计与请求响应模型)
 - [5. 详细文件迁移与代码修改计划](#5-详细文件迁移与代码修改计划)
@@ -25,14 +25,14 @@
   - [13.5 合规与许可](#135-合规与许可核查后新增-) ⭐ 新增
   - [13.6 Python 版本兼容性验证](#136-python-版本兼容性验证核查后新增-) ⭐ 新增
 - [14. 核查清单与原始证据](#14-核查清单与原始证据) ⭐ 新增
-- [附录 A：deep_research → agent-platform 文件映射](#附录-adeep_research--agent-platform-文件映射)
+- [附录 A：deep_research → agent 文件映射](#附录-adeep_research--agent-文件映射)
 - [附录 B：核查后的关键风险速览](#附录-b核查后的关键风险速览供实施前复核) ⭐ 新增
 
 ---
 
 ## 0. 核查修订说明（v1.1）
 
-本文档初版生成后，已对 `deep_research/` 源码与 `apps/apps/agent-platform/` 现状做**逐文件核查**（证据见 [§14 核查清单与原始证据](#14-核查清单与原始证据)），修正了 **20 处**偏差：
+本文档初版生成后，已对 `deep_research/` 源码与 `apps/apps/agent/` 现状做**逐文件核查**（证据见 [§14 核查清单与原始证据](#14-核查清单与原始证据)），修正了 **20 处**偏差：
 
 | # | 类型 | 初版表述 | 核查后修正 |
 | --- | --- | --- | --- |
@@ -45,16 +45,16 @@
 | 7 | **遗漏** | `workers.py` 只列 `OODACycle` + `SourceQualityAssessment` | 还有 **`ResearchBudget`**（研究预算类，含 `queries_remaining()` / `budget_exhausted()`）+ `BaseWorker` + **`WorkerFactory`** |
 | 8 | **遗漏** | 未说明 OODA 的实现位置 | OODA 实为 `SearchWorker` 的 4 个私有方法 **`_observe` / `_orient` / `_decide` / `_act`**（`workers.py:276-363`） |
 | 9 | **行号错误** | "`research_agent.py:226-251` 的 `original_config` 临时覆盖逻辑" | **实际在 `main.py:226-251`**（`research_agent.py` 无此逻辑） |
-| 10 | **方案过时** | §5.2 配置扩展示例含 `static_dir: Path = APP_DIR / "static"` | **agent-platform 已删除 `static_dir`**（前端分离为 Vue 工程后移除），方案应基于当前 config |
+| 10 | **方案过时** | §5.2 配置扩展示例含 `static_dir: Path = APP_DIR / "static"` | **agent 已删除 `static_dir`**（前端分离为 Vue 工程后移除），方案应基于当前 config |
 | 11 | **端点计数** | §4.1 端点表列 7 行 | deep_research 实际 **8 个**端点（+ `GET /` 服务信息） |
 | 12 | **配置规模** | "含 30+ 嵌套字段" | `AGENT_CONFIG` 实际 **18 个顶级字段**（其中 4 个是嵌套 dict） |
-| 13 | **高风险·兼容性** | 未提及 deep_research 的 venv 是 **Python 3.13** | `.venv/bin/python` = **3.13.9**，而 agent-platform 锁 `>=3.10,<3.13` → **已实测：7 个 .py 全部通过 `python3.11 -m py_compile`**，无需 3.12+ 语法（无 PEP 695 泛型、无 `match`、无 `datetime.UTC`） |
-| 14 | **高风险·合规** | **未提及版权声明** | `README.md` 末尾含 **"深维学院，侵权必究（转卖，私自转发等均属于侵权行为）"** → 迁移时须保留署名或另行确认授权 |
+| 13 | **高风险·兼容性** | 未提及 deep_research 的 venv 是 **Python 3.13** | `.venv/bin/python` = **3.13.9**，而 agent 锁 `>=3.10,<3.13` → **已实测：7 个 .py 全部通过 `python3.11 -m py_compile`**，无需 3.12+ 语法（无 PEP 695 泛型、无 `match`、无 `datetime.UTC`） |
+| 14 | **高风险·合规** | **未提及版权声明** | `README.md` 末尾含 **"agent，侵权必究（转卖，私自转发等均属于侵权行为）"** → 迁移时须保留署名或另行确认授权 |
 | 15 | **遗漏** | 未提及 `.env.example` 中的 `DEEP_RESEARCH_PORT=18000` | 整合后端口统一 8000，该变量应废弃（在迁移说明中标注） |
 | 16 | **遗漏** | 未提及 deep_research **无 `pyproject.toml` / `.python-version`** | 仅 `requirements.txt`（7 个包，无版本上限），整合后统一由 backend 的 `pyproject.toml` + `requirements.txt` 管理 |
 | 17 | **遗漏** | 未提 `assets/*.svg` 权限为 `600`（`-rw-------`） | `cp` 后需 `chmod 644`，否则静态服务可能 403 |
-| 18 | **遗漏** | 未写明 agent-platform 基线 | 当前 **27 个 API 路径 / 16 个测试 / 5 个 schemas / 9 个 services 模块**，新增后变为 35 路径 / 21 测试 |
-| 19 | **遗漏** | 未说明 agent-platform 现有 config 字段 | 已有 `dashscope_*` / `llm_*`（`plan_model`/`rag_model`/`answer_model`）/ `openai_*` / `serper_api_key` / `milvus_*` → **Bocha 字段应"追加"而非重建** |
+| 18 | **遗漏** | 未写明 agent 基线 | 当前 **27 个 API 路径 / 16 个测试 / 5 个 schemas / 9 个 services 模块**，新增后变为 35 路径 / 21 测试 |
+| 19 | **遗漏** | 未说明 agent 现有 config 字段 | 已有 `dashscope_*` / `llm_*`（`plan_model`/`rag_model`/`answer_model`）/ `openai_*` / `serper_api_key` / `milvus_*` → **Bocha 字段应"追加"而非重建** |
 | 20 | **代码草稿** | §5.6 API 示例中 `manager: ResearchManager = ...` 为未完成伪代码 | **已补全为可执行实现**（通过 `Request` 依赖注入获取 manager） |
 
 > ⚠️ **两条高风险项需优先处置**：#13（Python 版本，已验证兼容，无阻断）+ #14（版权，需确认）。
@@ -117,7 +117,7 @@ deep_research/
 
 ### 1.4 依赖
 
-| 包 | 版本要求 | agent-platform 现状 |
+| 包 | 版本要求 | agent 现状 |
 |---|---|---|
 | `openai` | ≥1.0.0 | ✅ 已装（≥1.58） |
 | `requests` | ≥2.28.0 | ✅ 已装（≥2.32） |
@@ -128,20 +128,20 @@ deep_research/
 | `typing-extensions` | ≥4.0.0 | ✅ 已装 |
 | **Bocha API key** | 用户 `.env` 已有字段（值为空） | ⚠️ 无 key → 调用时返回 503/降级提示 |
 
-**关键发现**：所有 7 个核心依赖都已在 agent-platform 中，**无需新增 Python 包**。
+**关键发现**：所有 7 个核心依赖都已在 agent 中，**无需新增 Python 包**。
 
 ---
 
-## 2. 与 agent-platform 的重叠 / 互补 / 差异
+## 2. 与 agent 的重叠 / 互补 / 差异
 
-| 维度 | deep_research 独有 | agent-platform 已覆盖 | 整合策略 |
+| 维度 | deep_research 独有 | agent 已覆盖 | 整合策略 |
 |---|---|---|---|
 | **LLM 客户端** | 自定义 `LLMClient`（OpenAI SDK 同步 + 流式） | ✅ `app/core/llm.py`（OpenAI 兼容 + JSON mode） | **直接复用** `app.core.llm.get_llm_client()` |
 | **配置层** | 模块级 dict（`LLM_CONFIG/SEARCH_CONFIG/AGENT_CONFIG/OUTPUT_CONFIG`） | ✅ `app/core/config.py` pydantic-settings | **合并** AGENT_CONFIG 关键字段 + SEARCH_CONFIG（Bocha） |
 | **FastAPI + lifespan** | 自带 `app.main:app` | ✅ `app/main.py` | **不重写** main.py；新端点挂在 `/api/v1/research` |
 | **CORS** | `allow_origins=["*"]` | ✅ 已配 | 沿用 |
 | **SSE 流式** | 自定义 event_generator + 每 0.5s 轮询 task_manager | ✅ `agent_service._stream_loop` | **独立端点**（任务管理 SSE 不同于 LLM 流） |
-| **后台任务** | `ThreadPoolExecutor(max_workers=3)` + `TaskManager` 内存 dict | ❌ agent-platform 无 | **新增** `ResearchManager`（in-memory + 可选 JSON 持久化） |
+| **后台任务** | `ThreadPoolExecutor(max_workers=3)` + `TaskManager` 内存 dict | ❌ agent 无 | **新增** `ResearchManager`（in-memory + 可选 JSON 持久化） |
 | **网络搜索** | **Bocha API**（`api.bocha.cn/v1/web-search`，中文） | ⚠️ Serper（`google.serper.dev`，国际） | **保留双 API**：Bocha 用于 deep_research，Serper 用于 web_research |
 | **Orchestrator-Workers 编排** | 1 Lead + N SubAgents 并行 | ❌ 仅有 5 个内置工具 + MCP/RAG/Web 工具 | **新增** `app/services/research/` |
 | **OODA 循环** | Observe→Orient→Decide→Act（Worker 内部） | ❌ 无 | **整体迁移** `workers.py` |
@@ -168,7 +168,7 @@ deep_research/
 ### 3.1 5 条能力链定位
 
 ```
-agent-platform v1.1
+agent v1.1
 ├── Skill 链   (app/services/{skill_manager, code_executor, agent_service}.py)
 ├── MCP 链     (app/services/{mcp_manager, tool_registry}.py)
 ├── RAG 链     (app/services/rag/)
@@ -185,7 +185,7 @@ agent-platform v1.1
 ### 3.2 模块结构
 
 ```
-apps/agent-platform/backend/app/services/research/
+apps/agent/backend/app/services/research/
 ├── __init__.py
 ├── prompts.py                ← **14 个** Prompt 模板（935 行，直接复制）
 ├── search_client.py          ← Bocha 搜索客户端（从 tools.py 抽出）
@@ -196,7 +196,7 @@ apps/agent-platform/backend/app/services/research/
 └── service.py                ← DeepResearchAgent 类（CLI + 程序化调用）
 ```
 
-**为什么不直接照搬目录结构**：把 `tools.py` 中的 LLMClient 删除（用 agent-platform 自己的 `app/core/llm.py`），把 SearchClient 单独抽出为 `search_client.py`。`workers.py` 的 OODACycle / SourceQualityAssessment 抽到 `quality.py`，让 workers 主体更瘦。
+**为什么不直接照搬目录结构**：把 `tools.py` 中的 LLMClient 删除（用 agent 自己的 `app/core/llm.py`），把 SearchClient 单独抽出为 `search_client.py`。`workers.py` 的 OODACycle / SourceQualityAssessment 抽到 `quality.py`，让 workers 主体更瘦。
 
 ### 3.3 整合架构图
 
@@ -260,7 +260,7 @@ apps/agent-platform/backend/app/services/research/
 └───────────────────────────────────────────────────────────────────────┘
 ```
 
-### 3.4 与 agent-platform 其他模块的依赖
+### 3.4 与 agent 其他模块的依赖
 
 - **`app/core/llm.py`**：替代 deep_research 自己的 `LLMClient`
 - **`app/core/config.py`**：合并 `LLM_CONFIG/SEARCH_CONFIG/AGENT_CONFIG` 关键字段
@@ -365,7 +365,7 @@ class ResearchHealth(BaseModel):
 { "stage": "final", "data": {"status": "completed", "quality_score": 85, "duration": 245.6}, "timestamp": "..." }
 ```
 
-> 与 agent-platform 现有 `/agent/run` 的事件类型（system_prompt / user_input / round_start / tool_call / tool_result / model_text / files / done）**无冲突**——研究事件只在 `/research/{id}/stream` 端点出现。
+> 与 agent 现有 `/agent/run` 的事件类型（system_prompt / user_input / round_start / tool_call / tool_result / model_text / files / done）**无冲突**——研究事件只在 `/research/{id}/stream` 端点出现。
 
 ---
 
@@ -453,7 +453,7 @@ class ResearchHealth(BaseModel):
 
 #### 扩展 `app/core/config.py`
 
-> **基线说明（核查后补充）**：agent-platform 当前的 `app/core/config.py` **已包含**下列字段，新增时**不要重复定义**：
+> **基线说明（核查后补充）**：agent 当前的 `app/core/config.py` **已包含**下列字段，新增时**不要重复定义**：
 > - 应用：`app_name` / `app_version` / `debug` / `host` / `port`
 > - 主 LLM：`dashscope_api_key` / `dashscope_base_url` / `default_model` / `max_tokens` / `max_iterations` / `exec_timeout`
 > - 备选 LLM：`llm_api_key` / `llm_base_url` / `plan_model` / `rag_model` / `answer_model`
@@ -567,7 +567,7 @@ RESEARCH_CONFIG = {
 
 #### 新建 `app/services/research/search_client.py`
 
-从 `deep_research/app/agent/tools.py` 抽出 `SearchClient` + `SearchResult` + `SearchResponse`，**移除 `LLMClient`/`extract_json`/`format_search_context`（这些用 agent-platform 自己的）**。
+从 `deep_research/app/agent/tools.py` 抽出 `SearchClient` + `SearchResult` + `SearchResponse`，**移除 `LLMClient`/`extract_json`/`format_search_context`（这些用 agent 自己的）**。
 
 ```python
 """Bocha 搜索客户端（迁移自 deep_research/app/agent/tools.py，去除 LLMClient）。"""
@@ -730,7 +730,7 @@ from app.agent.tools import get_llm_client, get_search_client, extract_json, for
 from app.agent.prompts import SEARCH_WORKER_SYSTEM_PROMPT, SEARCH_WORKER_TASK_PROMPT, ...
 
 # 改为
-from app.core.llm import get_llm_client          # 复用 agent-platform LLM
+from app.core.llm import get_llm_client          # 复用 agent LLM
 from app.services.research.search_client import get_search_client, format_search_context
 from app.services.research.prompts import (SEARCH_WORKER_SYSTEM_PROMPT, ...)
 from app.services.research.quality import OODACycle, SourceQualityAssessment, assess_source_quality
@@ -1008,7 +1008,7 @@ from app.services.research.service import DeepResearchAgent
 
 #### 新建 `app/api/v1/research.py`
 
-完整迁移 `deep_research/app/main.py` 的 6 个端点到 agent-platform 风格：
+完整迁移 `deep_research/app/main.py` 的 6 个端点到 agent 风格：
 
 ```python
 """深度研究链路接口（迁移自 deep_research）。"""
@@ -1335,7 +1335,7 @@ RESEARCH_OUTPUT_DIR=data/research
 - `OUTPUT_CONFIG["output_dir"]`（`./research_output`）→ 用 `settings.research_output_abs` 替代
 - `LLM_CONFIG["api_key"/"base_url"]`（`DASHSCOPE_API_KEY` 单独读取）→ 用 `app/core/llm.py` + `settings.dashscope_api_key/dashscope_base_url`
 - `SEARCH_CONFIG`（Bocha）→ 拆为独立 `bocha_*` 字段
-- `LOG_CONFIG`（stdout 打印级别）→ agent-platform 用 Python logging，不沿用
+- `LOG_CONFIG`（stdout 打印级别）→ agent 用 Python logging，不沿用
 - `LLM_CONFIG["model_smart"/"model_fast"]`（qwen-max / qwen-turbo）→ 已合并到 `AVAILABLE_MODELS` 与 `default_model`
 
 ### 6.3 RESEARCH_CONFIG 保留
@@ -1348,7 +1348,7 @@ RESEARCH_OUTPUT_DIR=data/research
 
 **结论：零新增依赖**。
 
-| deep_research 需求 | agent-platform 现状 |
+| deep_research 需求 | agent 现状 |
 |---|---|
 | `openai>=1.0` | ✅ `openai>=1.58` |
 | `requests>=2.28` | ✅ `requests>=2.32` |
@@ -1438,13 +1438,13 @@ Bocha key 为空时，所有 search 调用 graceful degrade，health 返回 `boc
 | # | 风险 | 概率 | 缓解 |
 |---|---|---|---|
 | 1 | **OODA 循环与现有 Agent 循环冲突** | 低 | 两者**完全独立**（不同端点、不同服务类），不共享代码 |
-| 2 | **LLM 客户端重写风险**（deep_research 自己的 vs 复用 agent-platform 的） | 中 | 复用 `app/core/llm.py` 的 `get_llm_client()`；deep_research 内部代码改为调用它 |
+| 2 | **LLM 客户端重写风险**（deep_research 自己的 vs 复用 agent 的） | 中 | 复用 `app/core/llm.py` 的 `get_llm_client()`；deep_research 内部代码改为调用它 |
 | 3 | **TaskManager 多线程安全** | 低 | `ThreadPoolExecutor` + in-memory dict 已是生产级模式；用 `asyncio.run_in_executor` 桥接 async |
 | 4 | **Bocha key 为空 → 工具无法调用** | 高 | health 端点暴露 `bocha_configured: false`；前端展示警告；研究提交后 worker 会失败但任务状态正确流转 |
 | 5 | **报告数据大（Markdown 长）** | 中 | SSE 流式 + 报告存盘（data/research/{task_id}/report_*.md），前端按需展示 |
 | 6 | **AGENT_CONFIG 全局 dict 被并发改写** | 高 | `main.py:226-251`（**非 `research_agent.py`**）原有 `original_config` 临时覆盖逻辑已实现；新版 `service.py` 复用 `try/finally` 保护 |
 | 11 | **Python 版本不匹配** | 低（已验证） | deep_research 的 `.venv` 是 **3.13.9**，目标环境是 3.11 → **已实测 7 个 .py 全部通过 `python3.11 -m py_compile`**，无 3.12+ 专有语法（无 PEP 695 泛型 / 无 `match` / 无 `datetime.UTC` / 无 `TaskGroup`），可直接迁移 |
-| 12 | **版权合规** | 中 | `README.md` 含"深维学院，侵权必究"声明 → 迁移时保留原署名与出处，或在内部使用场景下由用户确认授权范围 |
+| 12 | **版权合规** | 中 | `README.md` 含"agent，侵权必究"声明 → 迁移时保留原署名与出处，或在内部使用场景下由用户确认授权范围 |
 | 7 | **任务内存泄漏**（不删除时一直累积） | 中 | 持久化到 `data/research/tasks.json`（可重启加载）；提供 DELETE 端点 |
 | 8 | **prompts.py 中 CURRENT_DATE 动态** | 低 | 保留运行时计算（迁移时不修改） |
 | 9 | **Bocha API 字段格式** | 低 | 已按 deep_research 原版解析（`webPages.value[].name/url/snippet/siteName/dateLastCrawled`） |
@@ -1488,7 +1488,7 @@ chmod 644 backend/docs/research/assets/*.svg
 
 **阶段 H 补充步骤（核查后新增）**：
 ```bash
-# 版权声明必须随文档一起迁移（README 含"深维学院"声明）
+# 版权声明必须随文档一起迁移（README 含"agent"声明）
 cp deep_research/README.md backend/docs/research/00-原始README-含版权声明.md
 ```
 
@@ -1557,7 +1557,7 @@ cp deep_research/README.md backend/docs/research/00-原始README-含版权声明
 
 | 项 | 内容 | 处置建议 |
 |---|---|---|
-| **版权声明** | `deep_research/README.md` 末尾：*"深维学院，侵权必究（转卖，私自转发等均属于侵权行为）"* | **必读**：该声明限制转卖/转发。整合属"内部学习改造"场景，建议：① 迁移后在新仓库 `docs/research/00-README.md` **保留原始署名与版权页**；② 若涉及对外分发，需先取得授权 |
+| **版权声明** | `deep_research/README.md` 末尾：*"agent，侵权必究（转卖，私自转发等均属于侵权行为）"* | **必读**：该声明限制转卖/转发。整合属"内部学习改造"场景，建议：① 迁移后在新仓库 `docs/research/00-README.md` **保留原始署名与版权页**；② 若涉及对外分发，需先取得授权 |
 | **assets 许可** | `architecture.svg` / `prompt_dataflow.svg` 无单独 LICENSE | 随 README 版权一并沿用 |
 | **代码 License** | 仓库内**未见 `LICENSE` 文件** | 迁移后如需开源，须先与版权方确认 |
 | **第三方依赖许可** | `openai`(MIT) / `requests`(Apache-2.0) / `fastapi`(MIT) / `uvicorn`(BSD) / `pydantic`(MIT) / `python-dotenv`(BSD) | ✅ 均为宽松许可，无冲突 |
@@ -1566,11 +1566,11 @@ cp deep_research/README.md backend/docs/research/00-原始README-含版权声明
 
 ### 13.6 Python 版本兼容性验证（核查后新增）✅
 
-deep_research 自带的 `.venv` 是 **Python 3.13.9**，而 agent-platform 的 `pyproject.toml` 锁 **`>=3.10,<3.13`**（当前运行环境 3.11.15）。为排除"代码用了 3.12+ 语法"的风险，已做**语法级验证**：
+deep_research 自带的 `.venv` 是 **Python 3.13.9**，而 agent 的 `pyproject.toml` 锁 **`>=3.10,<3.13`**（当前运行环境 3.11.15）。为排除"代码用了 3.12+ 语法"的风险，已做**语法级验证**：
 
 ```bash
-# 用 agent-platform 的 3.11 解释器编译 deep_research 全部源码
-$ apps/agent-platform/backend/.venv/bin/python -m py_compile \
+# 用 agent 的 3.11 解释器编译 deep_research 全部源码
+$ apps/agent/backend/.venv/bin/python -m py_compile \
     deep_research/app/main.py deep_research/app/core/config.py deep_research/app/agent/*.py
 ✅ 全部通过（无输出即成功）
 
@@ -1580,7 +1580,7 @@ grep -rn "^\s*match .*:"      deep_research/app/       # match 语句 → 无
 grep -rn "datetime.UTC\|typing import.*Self\|TaskGroup\|except\*" deep_research/app/  # 3.11+ 专有 API → 无
 ```
 
-**结论**：代码兼容 Python 3.11，**无需版本升级**，可直接迁移到 agent-platform 环境。
+**结论**：代码兼容 Python 3.11，**无需版本升级**，可直接迁移到 agent 环境。
 
 > 备注：`requirements.txt` 未声明 `python_requires`，`.venv` 用 3.13 只是创建时的选择，并非代码要求。
 
@@ -1605,17 +1605,17 @@ grep -rn "datetime.UTC\|typing import.*Self\|TaskGroup\|except\*" deep_research/
 | 9 | config 临时覆盖 | `grep -n "original_config" app/main.py` → **`main.py:226-251`**（非 `research_agent.py`） |
 | 10 | AGENT_CONFIG 规模 | `python -c "len(AGENT_CONFIG)"` → **18 个顶级字段** |
 | 11 | 运行环境 | `.venv/bin/python --version` → **Python 3.13.9** |
-| 12 | Python 3.11 兼容性 | `apps/apps/agent-platform/backend/.venv/bin/python -m py_compile app/main.py app/core/config.py app/agent/*.py` → **✅ 无错误** |
+| 12 | Python 3.11 兼容性 | `apps/apps/agent/backend/.venv/bin/python -m py_compile app/main.py app/core/config.py app/agent/*.py` → **✅ 无错误** |
 | 13 | 专有语法排查 | `grep -rn "^\s*match \|^type \|datetime.UTC\|TaskGroup" app/` → **无命中** |
 | 14 | 依赖清单 | `cat requirements.txt` → 7 个包（openai / requests / python-dotenv / typing-extensions / fastapi / uvicorn[standard] / pydantic），**无版本上限** |
 | 15 | 无 pyproject | `ls pyproject.toml .python-version` → 均不存在 |
 | 16 | `.env.example` 变量 | `cat .env.example` → `DASHSCOPE_API_KEY` / `BOCHA_API_KEY` / **`DEEP_RESEARCH_PORT=18000`** |
 | 17 | docs 清单 | `for f in docs/*.md; do head -1 $f; done` → 7 份（00-README…06-流程） |
 | 18 | assets | `ls -la assets/` → 2 个 SVG（23KB + 40KB），**权限 `-rw-------`（600）** |
-| 19 | 版权声明 | `tail -3 README.md` → *"深维学院，侵权必究（转卖，私自转发等均属于侵权行为）"* |
+| 19 | 版权声明 | `tail -3 README.md` → *"agent，侵权必究（转卖，私自转发等均属于侵权行为）"* |
 | 20 | 无 LICENSE 文件 | `ls LICENSE` → 不存在 |
 
-### 14.2 agent-platform 侧（基线）
+### 14.2 agent 侧（基线）
 
 | # | 核查项 | 命令 / 结果 |
 |---|---|---|
@@ -1634,9 +1634,9 @@ grep -rn "datetime.UTC\|typing import.*Self\|TaskGroup\|except\*" deep_research/
 
 ---
 
-## 附录 A：deep_research → agent-platform 文件映射
+## 附录 A：deep_research → agent 文件映射
 
-| deep_research 源 | 行数 | agent-platform 目标 | 改造 |
+| deep_research 源 | 行数 | agent 目标 | 改造 |
 |---|---:|---|---|
 | `app/main.py` | 482 | 拆分为 `app/api/v1/research.py`(新) + `app/services/research/research_manager.py`(新) | 重写为 API 风格 + TaskManager→ResearchManager |
 | `app/core/config.py` | 116 | `app/core/config.py`(追加 bocha 字段) + `app/services/research/research_config.py`(新) | 拆分：Settings 只放 Pydantic 字段；18 字段 dict 独立 |
@@ -1659,7 +1659,7 @@ grep -rn "datetime.UTC\|typing import.*Self\|TaskGroup\|except\*" deep_research/
 | + 3 个 `__init__.py`（5+5+12） | 4110 行 |
 | 迁移后保留（去 LLMClient ~110 行 / CLI+Reporter ~200 行） | ~3790 行 |
 | + 新脚手架（schemas 100 / manager 130 / api 150 / utils 30 / `__init__` 10） | ~420 行 |
-| **agent-platform 第 5 链总增量** | **~4210 行**（含注释与文档字符串） |
+| **agent 第 5 链总增量** | **~4210 行**（含注释与文档字符串） |
 | 平台基线（迁移前） | 27 路径 / 16 测试 / 9 services 模块 / 5 schemas |
 | 平台（迁移后） | **34 路径** / **21 测试** / 10 services 模块 / 6 schemas |
 
@@ -1669,7 +1669,7 @@ grep -rn "datetime.UTC\|typing import.*Self\|TaskGroup\|except\*" deep_research/
 
 | 优先级 | 项 | 处置 |
 |:---:|---|---|
-| 🔴 P0 | **版权声明**（"深维学院，侵权必究"） | 内部学习改造可用；对外分发前须确认授权；迁移时保留原始署名 |
+| 🔴 P0 | **版权声明**（"agent，侵权必究"） | 内部学习改造可用；对外分发前须确认授权；迁移时保留原始署名 |
 | 🟡 P1 | **Bocha key 为空** | `/research/health` 返回 `bocha_configured: false`；建议按 Q4 实现 Serper 降级（40 行适配层） |
 | 🟡 P1 | **14 个 Prompt 必须全量复制** | 漏一个导致 Worker `ImportError`；阶段 B 已加断言脚本 |
 | 🟢 P2 | **Python 3.13 → 3.11** | 已验证兼容，无需处理 |

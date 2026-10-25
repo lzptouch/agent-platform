@@ -1,7 +1,7 @@
 # Vue 3 极简前端与 SSE 自研消费（扩充版）
 
 > - **整理日期**：2026-09-15（首发 2026-09-15 扩充）
-> - **依据项目**：`apps/agent-platform/frontend/src/App.vue` + `frontend/src/api.js` + `frontend/src/components/*.vue`
+> - **依据项目**：`apps/agent/frontend/src/App.vue` + `frontend/src/api.js` + `frontend/src/components/*.vue`
 > - **资料来源**：Vue 3 官方文档 + MDN EventSource + MDN ReadableStream + @microsoft/fetch-event-source
 
 ---
@@ -30,14 +30,14 @@ frontend/src/
 
 # 第二章 状态管理（无 Pinia）
 
-App.vue 用 ref + computed 自管（与 agent-platform 风格一致）：
+App.vue 用 ref + computed 自管（与 agent 风格一致）：
 
 ```vue
 <!-- App.vue:11-31 -->
 <script setup>
-const STORAGE_KEY = 'agent-platform-sessions'
-const SKILL_KEY = 'agent-platform-selected-skills'
-const MODE_KEY = 'agent-platform-mode'
+const STORAGE_KEY = 'agent-sessions'
+const SKILL_KEY = 'agent-selected-skills'
+const MODE_KEY = 'agent-mode'
 
 const mode = ref(localStorage.getItem(MODE_KEY) || 'chat')
 const skills = ref([])
@@ -79,9 +79,9 @@ interface AppState {
 
 | Key | 内容 | 持久化时机 |
 |-----|------|----------|
-| `agent-platform-sessions` | 所有会话 | 每次消息变化 |
-| `agent-platform-selected-skills` | 选中 Skill | watch 触发 |
-| `agent-platform-mode` | 模式（chat/research） | watch 触发 |
+| `agent-sessions` | 所有会话 | 每次消息变化 |
+| `agent-selected-skills` | 选中 Skill | watch 触发 |
+| `agent-mode` | 模式（chat/research） | watch 触发 |
 
 ---
 
@@ -337,8 +337,8 @@ watch(() => props.steps.length, async () => {
 | 方案 | 适用 | 优势 |
 |------|------|------|
 | **App.vue ref**（本项目） | 小型（≤5 视图） | 极简；零依赖 |
-| **Pinia**（Agent3） | 中大型 | TS 友好；devtools |
-| **valtio**（industry_information_assistant） | 中型 | Proxy 代理；轻量 |
+| **Pinia**（finance-report） | 中大型 | TS 友好；devtools |
+| **valtio**（industry-research） | 中型 | Proxy 代理；轻量 |
 | **Vuex** | 老项目 | 成熟 |
 
 ---
@@ -448,8 +448,8 @@ export async function streamAgent(params, onEvent, signal) {
 | [6] | OSS 项目 | @microsoft/fetch-event-source | https://github.com/Azure/fetch-event-source | 2026-09-15 |
 | [7] | 官方文档 | Pinia | https://pinia.vuejs.org | 2026-09-15 |
 | [8] | OSS 项目 | valtio | https://github.com/pmndrs/valtio | 2026-09-15 |
-| [9] | 同源文档 | `apps/financial-report-agent/doc/knowledge/06_Vue3_Pinia_ElementPlus状态管理实践.md` | Pinia 风格对比 | 2026-09-15 |
-| [10] | 同源文档 | `apps/industry-research-assistant/frontend/src/store/` | valtio 风格对比 | 2026-09-15 |
+| [9] | 同源文档 | `apps/finance-report/doc/knowledge/06_Vue3_Pinia_ElementPlus状态管理实践.md` | Pinia 风格对比 | 2026-09-15 |
+| [10] | 同源文档 | `apps/industry-research/frontend/src/store/` | valtio 风格对比 | 2026-09-15 |
 
 ---
 

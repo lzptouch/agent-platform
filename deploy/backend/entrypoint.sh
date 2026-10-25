@@ -9,7 +9,7 @@
 # =====================================================================
 set -euo pipefail
 
-echo "[entrypoint] Agent Platform Backend starting..."
+echo "[entrypoint] agent Backend starting..."
 echo "[entrypoint] python: $(python -V 2>&1) | workdir: $(pwd) | UTC now: $(date -u '+%Y-%m-%d %H:%M:%S')"
 
 # ---------- 运行时目录 ----------

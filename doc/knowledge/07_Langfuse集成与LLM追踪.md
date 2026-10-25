@@ -1,7 +1,7 @@
 # Langfuse 集成与 LLM 追踪（扩充版）
 
 > - **整理日期**：2026-09-15（首发 2026-09-15 扩充）
-> - **依据项目**：`agent-platform` 后端 LLM 追踪链路（已集成 Langfuse）
+> - **依据项目**：`agent` 后端 LLM 追踪链路（已集成 Langfuse）
 > - **资料来源**：Langfuse 官方文档 + OpenTelemetry 官方 + Arize Phoenix + OpenLLMetry + LangSmith + Helicone
 
 ---
@@ -412,8 +412,8 @@ def init_langfuse(settings):
 | [9] | 官方文档 | LangSmith | https://docs.smith.langchain.com | 2026-09-15 |
 | [10] | OSS 项目 | Helicone | https://github.com/Helicone/helicone | 2026-09-15 |
 | [11] | OSS 项目 | Portkey | https://github.com/Portkey-AI/portkey | 2026-09-15 |
-| [12] | 同源文档 | `apps/financial-report-agent/doc/analysis/05_可观测体系设计.md` | 三支柱基础 | 2026-09-15 |
-| [13] | 同源文档 | `apps/industry-research-assistant/doc/analysis/05_可观测体系设计.md` | 5 集成监控 | 2026-09-15 |
+| [12] | 同源文档 | `apps/finance-report/doc/analysis/05_可观测体系设计.md` | 三支柱基础 | 2026-09-15 |
+| [13] | 同源文档 | `apps/industry-research/doc/analysis/05_可观测体系设计.md` | 5 集成监控 | 2026-09-15 |
 
 ---
 

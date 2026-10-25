@@ -1,4 +1,4 @@
-# Agent Platform · Docker 部署说明
+# agent · Docker 部署说明
 
 > 目标：把「直接 `uvicorn` + `npm run dev`」的开发态，改造成**一套 `docker compose` 启动的生产形态**。
 > 全部配置文件都放在本仓库内：根目录 `docker-compose.yml` + `deploy/` 目录。
@@ -49,7 +49,7 @@
                     └──────────────────────────────────┬─────────────────────────────────────────┘
                                                        │
                                      ┌─────────────────▼──────────────────┐
-                                     │  agent-platform-web  (nginx:alpine)│  对外唯一端口 8080→80
+                                     │  agent-web  (nginx:alpine)│  对外唯一端口 8080→80
                                      │  ┌───────────────────────────────┐ │
                                      │  │ 静态直出：/、/assets/*        │ │  ← 前端 dist（构建期打进镜像）
                                      │  │ SPA 回退：非 /api → index.html│ │
@@ -57,15 +57,15 @@
                                      │  │ 反代：/docs /redoc /openapi   │ │
                                      │  └───────────────────────────────┘ │
                                      └─────────────────┬──────────────────┘
-                                        compose 内部网络 agent-platform-net
+                                        compose 内部网络 agent-net
                                                        │
                                      ┌─────────────────▼──────────────────┐
-                                     │  agent-platform-backend (python:3.11-slim)│
+                                     │  agent-backend (python:3.11-slim)│
                                      │  uvicorn app.main:app 0.0.0.0:8000  │  ← 不再托管静态资源
                                      └─────────────────┬──────────────────┘
                                                        │ /app/data
                                      ┌─────────────────▼──────────────────┐
-                                     │  named volume: agent-platform-data │
+                                     │  named volume: agent-data │
                                      │  ├─ milvus.db   （Milvus Lite 向量库）│
                                      │  ├─ research/   （任务 + 报告）      │
                                      │  └─ outputs|uploads|pdf|logs|browser_data│
@@ -82,7 +82,7 @@
 | SSE（流式对话 / 研究进度） | `proxy_buffering off` + `gzip off` + `X-Accel-Buffering: no` + 3600s 超时 | 否则前端收不到逐字流式，会一次性吐出或超时断开 |
 | 后端健康感知 | `healthcheck` 打 `/api/v1/health`；nginx `depends_on: service_healthy` | 保证 nginx 起来时后端已就绪 |
 | 服务名解析 | nginx `resolver 127.0.0.11` + 变量式 `proxy_pass` | backend 容器重建导致 IP 变化时，nginx 能重新解析，不会「启动即 502」 |
-| 数据持久化 | named volume `agent-platform-data:/app/data` | 向量库/任务/上传/产出/日志跨容器重建保留 |
+| 数据持久化 | named volume `agent-data:/app/data` | 向量库/任务/上传/产出/日志跨容器重建保留 |
 | 密钥 | `docker compose` 的 `env_file: ./backend/.env` | 密钥不进镜像层；镜像可安全分发 |
 
 ---
@@ -90,7 +90,7 @@
 ## 3. 文件清单
 
 ```
-agent-platform/
+agent/
 ├── docker-compose.yml                     # 主编排（backend + web）
 ├── .dockerignore                          # 构建上下文裁剪（排除 node_modules/.venv/data/.env）
 ├── frontend/web/vue-element-plus/        # 唯一前端实现（Dockerfile 构建的就是它）
@@ -105,7 +105,7 @@ agent-platform/
 │   │   └── Dockerfile                     # 前端多阶段构建（node → nginx）
 │   └── nginx/
 │       ├── nginx.conf                     # 主配置（gzip / 日志 / 上传体积）
-│       └── conf.d/agent-platform.conf     # 站点配置（静态 + 反代 + SSE）
+│       └── conf.d/agent.conf     # 站点配置（静态 + 反代 + SSE）
 └── backend/.env                           # 运行时密钥（从 .env.example 复制，已被 .gitignore 忽略）
 ```
 
@@ -132,7 +132,7 @@ cp backend/.env.example backend/.env     # 已存在则直接编辑
 ### 4.2 构建并启动
 
 ```bash
-# 在 docker-compose.yml 所在目录（apps/agent-platform/）
+# 在 docker-compose.yml 所在目录（apps/agent/）
 docker compose build          # 首次构建较慢：要装 playwright chromium
 docker compose up -d
 docker compose ps             # 观察 STATUS 是否 healthy
@@ -162,7 +162,7 @@ docker compose down -v                    # 连数据卷一起删（=清空向�
 docker compose exec backend python -m scripts.ingest_data
 
 # 直接看数据卷内容
-docker run --rm -v agent-platform-data:/data alpine ls -lhR /data
+docker run --rm -v agent-data:/data alpine ls -lhR /data
 ```
 
 ---
@@ -229,8 +229,8 @@ docker compose build
 | 构建报 `failed to resolve source metadata for docker.io/docker/dockerfile:1.7` | Dockerfile 里不要写 `# syntax=` 指令（本机镜像加速器拉不到 BuildKit frontend），已移除 |
 | `Head "https://<mirror>/v2/.../manifests/...": EOF` | 本机 Docker 镜像加速器**缺少该仓库/标签**；换加速器或在 Docker Desktop → Settings → Docker Engine 里去掉/更换 `registry-mirrors` 后重试（例如 `minio/minio` 在 USTC 源不可达） |
 | 访问 `/` 正常，`/api/v1/health` 502 | backend 未 healthy；`docker compose logs backend` 看启动异常 |
-| 流式回答一次性出现 | Nginx 缓冲；确认 `/api/` 走的是本仓库的 `deploy/nginx/conf.d/agent-platform.conf` |
-| 研究报告重启后消失 | 数据卷被删（`down -v`）或没挂载；`docker volume inspect agent-platform-data` |
+| 流式回答一次性出现 | Nginx 缓冲；确认 `/api/` 走的是本仓库的 `deploy/nginx/conf.d/agent.conf` |
+| 研究报告重启后消失 | 数据卷被删（`down -v`）或没挂载；`docker volume inspect agent-data` |
 | 构建极慢 / playwright 下载超时 | `INSTALL_PLAYWRIGHT=false docker compose build` |
 | 端口 8080 被占用 | `HOST_HTTP_PORT=8081 docker compose up -d` |
 | 容器内时间不对 | compose 已注入 `TZ=Asia/Shanghai`；镜像内也装了 tzdata |
@@ -250,7 +250,7 @@ docker compose build
 | 项 | 结果 |
 |---|---|
 | `docker compose config` | 主文件 + Milvus 覆盖文件均通过校验 |
-| `docker compose build` | 成功；`agent-platform-backend:1.1.0` ≈ 3.96GB（主要来自 Chromium + chromadb/langchain），`agent-platform-web:1.1.0` ≈ 74MB |
+| `docker compose build` | 成功；`agent-backend:1.1.0` ≈ 3.96GB（主要来自 Chromium + chromadb/langchain），`agent-web:1.1.0` ≈ 74MB |
 | `docker compose up -d` | backend `Up (healthy)`、web `Up (healthy)`，端口 `0.0.0.0:8080->80` |
 | `GET /` | 200 `text/html`，返回 Vue 构建后的 index.html（`/assets/index-*.js|css`） |
 | `GET /assets/index-*.js` | 200 `application/javascript`（带 7d 强缓存头） |

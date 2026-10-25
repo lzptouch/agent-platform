@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     )
 
     # ---------- 应用 ----------
-    app_name: str = "Agent Platform"
+    app_name: str = "agent"
     app_version: str = "1.1.0"
     debug: bool = False
     host: str = "0.0.0.0"

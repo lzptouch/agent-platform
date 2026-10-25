@@ -1,7 +1,7 @@
 # Orchestrator-Workers 多智能体架构（扩充版）
 
 > - **整理日期**：2026-09-15（首发 2026-09-15 扩充）
-> - **依据项目**：`apps/agent-platform/backend/app/services/research/`（Deep Research 链路）+ `doc/knowledge/04_质量评分迭代与任务持久化.md`
+> - **依据项目**：`apps/agent/backend/app/services/research/`（Deep Research 链路）+ `doc/knowledge/04_质量评分迭代与任务持久化.md`
 > - **资料来源**：Anthropic《Building Effective Agents》(2024-12) + Anthropic《How we built our multi-agent research system》(2025-06) + OpenAI Deep Research + AutoGen + CrewAI + LangGraph Supervisor
 
 ---
@@ -393,8 +393,8 @@ async def evaluate_quality(task, findings):
 | [8] | OSS 项目 | OpenAI Swarm | https://github.com/openai/swarm | 2026-09-15 |
 | [9] | 论文 | ReAct (Yao et al. 2022) | https://arxiv.org/abs/2210.03629 | 2026-09-15 |
 | [10] | 维基 | OODA Loop | https://en.wikipedia.org/wiki/OODA_loop | 2026-09-15 |
-| [11] | 同源文档 | `apps/industry-research-assistant/doc/knowledge/02_深度研究DeepResearch模块原理.md` | 6 专家 Agent | 2026-09-15 |
-| [12] | 同源文档 | `apps/agent-platform/backend/docs/research/` | 项目内能力链文档 | 2026-09-15 |
+| [11] | 同源文档 | `apps/industry-research/doc/knowledge/02_深度研究DeepResearch模块原理.md` | 6 专家 Agent | 2026-09-15 |
+| [12] | 同源文档 | `apps/agent/backend/docs/research/` | 项目内能力链文档 | 2026-09-15 |
 
 ---
 
