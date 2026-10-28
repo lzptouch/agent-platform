@@ -1,6 +1,6 @@
 /**
  * 后端接口的 TypeScript 类型（机器可读契约）。
- * 唯一事实源见 backend/app/schemas/*.py 与 frontend/docs/api-contract.md
+ * 唯一事实源见 backend/app/schemas/*.py 与本文件；接口总览见 doc/analysis/05_HTTP接口总览.md
  */
 
 // ===== 通用 =====
@@ -439,6 +439,47 @@ export interface NoticeEv extends BaseAgentEvent {
   content: string
 }
 
+// ===== S4 / S5 新增事件 =====
+
+/** 运行被取消（在工具边界生效） */
+export interface InterruptedEv {
+  type: 'interrupted'
+  content?: string
+  phase?: string
+}
+
+/** steer 指令已注入（下一个工具边界生效） */
+export interface SteerInjectedEv {
+  type: 'steer_injected'
+  instructions?: string[]
+  modes?: string[]
+}
+
+/** 计划被 replace_plan 指令替换 */
+export interface PlanReplacedEv {
+  type: 'plan_replaced'
+  content?: string
+}
+
+/** 上下文被强摘要压缩（S5） */
+export interface ContextCompressedEv {
+  type: 'context_compressed'
+  mode?: string
+  before_tokens?: number
+  after_tokens?: number
+  saved_tokens?: number
+  sections?: string[]
+  summary?: string
+}
+
+/** 上下文被裁剪（S5） */
+export interface ContextTrimmedEv {
+  type: 'context_trimmed'
+  dropped?: number
+  tokens?: number
+  ratio?: number
+}
+
 export type AgentEvent =
   | SkillsSelectedEv
   | SystemPromptEv
@@ -457,6 +498,11 @@ export type AgentEvent =
   | MetaEv
   | ApprovalRequiredEv
   | NoticeEv
+  | InterruptedEv
+  | SteerInjectedEv
+  | PlanReplacedEv
+  | ContextCompressedEv
+  | ContextTrimmedEv
 
 // ===== 会话 =====
 
@@ -622,4 +668,96 @@ export class ApiError extends Error {
   ) {
     super(`${status} ${path}: ${detail}`)
   }
+}
+
+// ===== 桌面端 =====
+
+export interface DesktopRuntimeInfo {
+  python: string
+  executable: string
+  frozen: boolean
+}
+
+export interface DesktopStatus {
+  mode: string
+  app_version: string
+  backend_version: string
+  protocol: number
+  started_at: string
+  data_dir: string
+  workspace_dir: string
+  runtime: DesktopRuntimeInfo
+  components: DesktopComponents
+  scheduler: Record<string, unknown>
+  security: {
+    auth_required: boolean
+    cors_origins: string[]
+    permission_level: string | null
+  }
+}
+
+export interface DesktopPreferences {
+  workspace_dir: string
+  default_mode: string
+  danger_tools: boolean
+  notify_on_run: boolean
+  notify_channel: string
+  remote_mode: boolean
+  remote_base: string
+  updated_at: string
+}
+
+export interface DesktopWorkspace {
+  workspace_dir: string
+  exists: boolean
+  writable: boolean
+}
+
+export interface DesktopWorkspaceResult {
+  ok: boolean
+  workspace_dir: string
+  writable: boolean
+  previous: string
+  effective: string
+}
+
+export interface DesktopComponents {
+  playwright_chromium: {
+    installed: boolean
+    path: string
+    size_bytes: number
+  }
+}
+
+export type PermissionDecision = 'deny' | 'ask' | 'allow'
+export type PermissionLevel = 'readonly' | 'ask' | 'allow'
+
+export interface PermissionRule {
+  id: number
+  scope: string
+  target: string
+  decision: PermissionDecision
+  hit_count: number
+  last_hit_at: string | null
+  updated_at: string
+}
+
+export interface DesktopPermissions {
+  rules: PermissionRule[]
+  effective_level: PermissionLevel
+  sandbox_available: boolean
+}
+
+export interface PermissionDecisionResp {
+  ok: boolean
+  decision: string
+  expires_at: string | null
+}
+
+export interface ResumeScanResult {
+  ok: boolean
+  rescued: number
+  skipped: number
+  window_hours: number
+  items: Array<{ task_id: string; scheduled_for: string; status: string }>
 }

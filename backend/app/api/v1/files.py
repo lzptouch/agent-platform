@@ -1,14 +1,30 @@
-"""产出文件接口（生成文件浏览 / 上传 / 删除）。"""
+"""产出文件接口（生成文件浏览 / 上传 / 删除）。
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+**上传边界**（批次 01 / WP-2）：
+
+- 单文件大小上限（默认 50 MB）+ 单请求总量上限（默认 100 MB）→ 超限 413；
+- 扩展名 / MIME 白名单 → 可执行文件一律拒绝；
+- 落盘走**流式计数**（不整体读进内存），超限即删半成品文件。
+"""
+
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 
 from app.api.deps import get_executor
+from app.core.uploads import (
+    check_upload,
+    format_bytes,
+    max_file_bytes,
+    max_request_bytes,
+)
 from app.services.code_executor import LocalCodeExecutor
 
 router = APIRouter(prefix="/files", tags=["files"])
 
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+
+#: 流式落盘的读取块大小
+CHUNK_SIZE = 1024 * 1024
 
 
 def _safe_path(executor: LocalCodeExecutor, filename: str):
@@ -37,15 +53,55 @@ def list_files(executor: LocalCodeExecutor = Depends(get_executor)) -> dict:
 
 @router.post("/upload", summary="上传文件到输出目录")
 async def upload_file(
+    request: Request,
     file: UploadFile = File(...),
     executor: LocalCodeExecutor = Depends(get_executor),
 ) -> dict:
-    name = (file.filename or "upload.bin").strip().replace("\\", "/").split("/")[-1]
+    name = (file.filename or "").strip().replace("\\", "/").split("/")[-1]
     if not name:
         raise HTTPException(status_code=400, detail="非法文件名")
+
+    # 1) 类型白名单：扩展名 + MIME（可执行文件一律拒绝）
+    reason = check_upload(name, file.content_type)
+    if reason:
+        raise HTTPException(status_code=415, detail=reason)
+
+    # 2) 请求总量上限：先看 Content-Length，避免把超大请求体读进来
+    limit_request = max_request_bytes()
+    content_length = request.headers.get("content-length")
+    if content_length and content_length.isdigit() and int(content_length) > limit_request:
+        raise HTTPException(
+            status_code=413,
+            detail=f"上传内容超过单请求上限（{format_bytes(limit_request)}）",
+        )
+
+    # 3) 流式落盘 + 单文件计数（超限即删半成品）
+    limit_file = max_file_bytes()
     target = executor.output_dir / name
-    target.write_bytes(await file.read())
-    return {"name": name, "size": target.stat().st_size, "url": f"/api/v1/files/{name}"}
+    written = 0
+    try:
+        with target.open("wb") as fh:
+            while True:
+                chunk = await file.read(CHUNK_SIZE)
+                if not chunk:
+                    break
+                written += len(chunk)
+                if written > limit_file:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"文件超过单文件上限（{format_bytes(limit_file)}）",
+                    )
+                fh.write(chunk)
+    except HTTPException:
+        target.unlink(missing_ok=True)
+        raise
+    except OSError as exc:
+        target.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail=f"写入文件失败: {exc}") from exc
+    finally:
+        await file.close()
+
+    return {"name": name, "size": written, "url": f"/api/v1/files/{name}"}
 
 
 @router.get("/{filename}", summary="下载 / 预览已生成的文件")

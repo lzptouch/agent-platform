@@ -1,6 +1,6 @@
 <template>
   <div class="ws-layout">
-    <SideNav variant="workspace" @search="searchVisible = true" />
+    <SideNav v-if="!composeMode" variant="workspace" @search="searchVisible = true" />
     <main class="ws-main">
       <router-view />
     </main>
@@ -37,15 +37,19 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { Search, ChatDotRound, Folder, MagicStick } from '@element-plus/icons-vue'
 import SideNav from '@/components/layout/SideNav.vue'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useConfigStore } from '@/stores/config'
 
 const router = useRouter()
+const route = useRoute()
 const ws = useWorkspaceStore()
 const config = useConfigStore()
+
+/** 速记形态（批次 02）：``?compose=1`` —— 只留输入区，不显示侧栏。 */
+const composeMode = computed(() => route.query.compose === '1')
 
 const searchVisible = ref(false)
 const keyword = ref('')

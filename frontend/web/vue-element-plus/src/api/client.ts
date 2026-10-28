@@ -27,6 +27,22 @@ export interface RequestOptions {
 
 const DEFAULT_TIMEOUT = 15_000
 
+// ---------- 运行时 base（桌面远端模式） ----------
+// 空串 = 同源（Web 形态与桌面本地模式）。仅桌面「远端模式」下由壳注入非空值。
+let runtimeBase = ''
+
+/** 设置运行时 API base。``null``/空串 = 回到同源。 */
+export function setApiBase(base: string | null): void {
+  runtimeBase = base ? base.replace(/\/+$/, '') : ''
+}
+
+/** 拼装完整 URL：绝对路径直接返回；相对路径叠加运行时 base（空则为同源）。 */
+export function buildApiUrl(path: string): string {
+  if (!runtimeBase) return path
+  if (/^https?:\/\//.test(path)) return path
+  return `${runtimeBase}${path.startsWith('/') ? path : `/${path}`}`
+}
+
 function joinUrl(path: string, query?: Record<string, string | number | boolean | undefined>): string {
   if (!query) return path
   const sp = new URLSearchParams()
@@ -49,7 +65,7 @@ function classify(status: number, detail: string): string {
 }
 
 export async function request<T = unknown>(path: string, opts: RequestOptions = {}): Promise<T> {
-  const url = joinUrl(path, opts.query)
+  const url = buildApiUrl(joinUrl(path, opts.query))
   const headers: Record<string, string> = {}
   let body: BodyInit | undefined
 

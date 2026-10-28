@@ -1,0 +1,53 @@
+# Agent Desktop 打包配置（electron-builder）
+# 产物矩阵与命名约定见 doc/design/02-系统架构设计.md §7.2
+appId: dev.agentplatform.desktop
+productName: Agent Desktop
+directories:
+  output: release          # 不得与 files 内目录同名
+  buildResources: resources
+files:
+  - dist-main/**
+  - dist-preload/**
+  - package.json
+extraResources:
+  - from: ../dist         # 前端产物在 frontend/dist（桌面工程现位于 frontend/desktop/）
+    to: frontend           # 前端产物（不进 asar，经 AGENT_FRONTEND_DIST 传给后端）
+  - from: .stage/runtime
+    to: runtime            # portable Python 运行时（可执行文件，绝不能进 asar）
+asar: true
+asarUnpack:
+  - "**/*.node"            # 壳自身的原生 node 模块（如有）
+  - "**/*.dll"             # Windows 原生依赖（不得从 asar 内加载）
+  - "**/*.so"              # POSIX 原生依赖
+  - "**/*.pyd"             # Windows Python 扩展
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  signingHashAlgorithms: [sha256]
+  artifactName: ${productName}-${version}-${arch}.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  differentialPackage: true        # 差分包，配合 electron-updater
+  deleteAppDataOnUninstall: false  # 卸载时保留用户数据
+  include: resources/installer.nsh
+mac:
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+    - target: zip                # electron-updater 的 macOS 更新通道必须用 zip
+      arch: [x64, arm64]
+  hardenedRuntime: true
+  entitlements: resources/entitlements.mac.plist
+  notarize: true
+  artifactName: ${productName}-${version}-mac-${arch}.${ext}
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]
+    - target: deb
+      arch: [x64]
+  category: Development
+  artifactName: ${productName}-${version}-${arch}.${ext}

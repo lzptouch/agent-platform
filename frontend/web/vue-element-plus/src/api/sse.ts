@@ -8,6 +8,8 @@
  * 4. 通过外部传入的 AbortSignal 支持取消
  */
 
+import { buildApiUrl } from './client'
+
 export interface SSEEventMap {
   'agent': import('./types').AgentEvent
   'research': import('./types').ResearchEvent
@@ -41,7 +43,7 @@ export async function runSSE<T>(
     body = JSON.stringify(options.body)
   }
 
-  const resp = await fetch(url, {
+  const resp = await fetch(buildApiUrl(url), {
     method: options.method ?? 'GET',
     headers,
     body,

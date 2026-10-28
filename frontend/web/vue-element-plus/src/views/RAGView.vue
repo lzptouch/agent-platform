@@ -57,7 +57,7 @@
           <el-form-item label="重建 collection">
             <el-switch v-model="recreate" />
             <span class="desc">
-              {{ recreate ? '将 DROP 并重建 collection' : '增量入库（保留现有向量）' }}
+              {{ recreate ? '将 DROP 并重建 collection' : '增量入库（保留现有向量；内容未变的文档自动跳过）' }}
             </span>
           </el-form-item>
           <el-button type="danger" :loading="busy" @click="doIngest">开始入库</el-button>
@@ -70,6 +70,9 @@
               <el-descriptions-item label="chunks">{{ ingestResult.chunks }}</el-descriptions-item>
               <el-descriptions-item label="entities">{{ ingestResult.entities }}</el-descriptions-item>
               <el-descriptions-item label="collection">{{ ingestResult.collection }}</el-descriptions-item>
+              <el-descriptions-item label="本次新增文档">{{ ingestResult.ingested ?? 0 }}</el-descriptions-item>
+              <el-descriptions-item label="跳过（已入库）">{{ ingestResult.skipped ?? 0 }}</el-descriptions-item>
+              <el-descriptions-item label="清理旧版本">{{ ingestResult.removed ?? 0 }}</el-descriptions-item>
             </el-descriptions>
           </el-card>
         </div>
@@ -110,7 +113,14 @@ const retrLimit = ref(10)
 const retrDocs = ref<RagRetrievalDoc[]>([])
 
 const recreate = ref(false)
-const ingestResult = ref<{ chunks: number; entities: number; collection: string } | null>(null)
+const ingestResult = ref<{
+  chunks: number
+  entities: number
+  collection: string
+  ingested?: number
+  skipped?: number
+  removed?: number
+} | null>(null)
 
 const stats = ref<RagStatsResp | null>(null)
 const busy = ref(false)
@@ -151,7 +161,12 @@ async function doIngest() {
   try {
     ingestResult.value = await ragIngest(recreate.value)
     await refreshStats()
-    ElMessage.success('入库完成')
+    const skipped = ingestResult.value.skipped ?? 0
+    ElMessage.success(
+      skipped > 0
+        ? `入库完成（跳过 ${skipped} 个已入库且内容未变的文档）`
+        : '入库完成',
+    )
   } catch (e: unknown) {
     ElMessage.error(`入库失败：${(e as Error).message}`)
   } finally { busy.value = false }

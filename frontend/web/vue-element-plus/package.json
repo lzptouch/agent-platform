@@ -10,11 +10,11 @@
     "typecheck": "vue-tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:api": "cd ../../.. && backend/.venv/bin/python backend/scripts/api_test.py",
-    "test:contract": "cd ../../.. && backend/.venv/bin/python frontend/scripts/ui_probe/contract_check.py",
-    "test:e2e": "cd ../../.. && backend/.venv/bin/python frontend/scripts/ui_probe/func_test.py",
-    "test:e2e:smoke": "cd ../../.. && backend/.venv/bin/python frontend/scripts/ui_probe/smoke.py",
-    "test:e2e:plan": "cd ../../.. && backend/.venv/bin/python frontend/scripts/ui_probe/smoke_plan.py"
+    "test:api": "node ../../scripts/run-python.mjs backend/scripts/api_test.py",
+    "test:contract": "node ../../scripts/run-python.mjs frontend/scripts/ui_probe/contract_check.py",
+    "test:e2e": "node ../../scripts/run-python.mjs frontend/scripts/ui_probe/func_test.py",
+    "test:e2e:smoke": "node ../../scripts/run-python.mjs frontend/scripts/ui_probe/smoke.py",
+    "test:e2e:plan": "node ../../scripts/run-python.mjs frontend/scripts/ui_probe/smoke_plan.py"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.1",

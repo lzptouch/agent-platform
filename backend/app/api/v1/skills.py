@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, Response
 
 from app.api.deps import get_skill_manager
+from app.core.uploads import format_bytes, max_file_bytes
 from app.schemas.skill import (
     SkillCreate,
     SkillDetail,
@@ -50,7 +51,22 @@ async def import_skill(
     overwrite: bool = Query(default=False),
     manager: SkillManager = Depends(get_skill_manager),
 ) -> SkillMeta:
-    data = await file.read()
+    # 上传边界（批次 01 / WP-2）：流式读取 + 单文件上限，避免超大包打满内存
+    limit = max_file_bytes()
+    chunks: list[bytes] = []
+    size = 0
+    while True:
+        chunk = await file.read(1024 * 1024)
+        if not chunk:
+            break
+        size += len(chunk)
+        if size > limit:
+            raise HTTPException(
+                status_code=413,
+                detail=f"文件超过单文件上限（{format_bytes(limit)}）",
+            )
+        chunks.append(chunk)
+    data = b"".join(chunks)
     try:
         skill = manager.import_zip(data, overwrite=overwrite)
     except SkillConflictError as exc:

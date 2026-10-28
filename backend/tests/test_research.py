@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json
+import pathlib
 
 import pytest
 from fastapi.testclient import TestClient
@@ -35,7 +36,8 @@ def test_research_health(client):
     assert data["search_provider"] in ("bocha", "serper", "none")
     assert data["search_configured"] == (data["search_provider"] != "none")
     assert data["max_concurrent_tasks"] == settings.research_max_concurrent
-    assert data["output_dir"].endswith("data/research")
+    # 跨平台：路径分隔符在 Windows 下是 \，不能用硬编码的 "data/research" 判断结尾
+    assert pathlib.PurePath(data["output_dir"]).parts[-2:] == ("data", "research")
 
 
 def test_research_list_shape(client):

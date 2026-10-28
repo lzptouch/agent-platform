@@ -10,97 +10,62 @@
       </button>
     </div>
 
-    <!-- 工作台形态：能力入口 + 任务流 -->
-    <template v-if="variant === 'workspace'">
-      <div class="brand">
-        <span class="logo">A</span>
-        <span v-if="!collapsed" class="name">Agent Platform</span>
-      </div>
+    <!-- 统一导航（两种布局共用一套：点击只切换右侧内容，左侧栏恒定） -->
+    <div class="brand">
+      <span class="logo">A</span>
+      <span v-if="!collapsed" class="name">Agent Platform</span>
+    </div>
 
-      <nav class="nav-list">
-        <button class="nav-item primary" :class="{ active: isWorkspace }" @click="goWorkspace">
-          <el-icon><Plus /></el-icon>
-          <span v-if="!collapsed">新建任务</span>
-        </button>
-        <button class="nav-item" @click="go('/assistant')">
-          <el-icon><ChatDotRound /></el-icon>
-          <span v-if="!collapsed">助理</span>
-        </button>
-        <button class="nav-item" @click="go('/spaces')">
-          <el-icon><Folder /></el-icon>
-          <span v-if="!collapsed">项目</span>
-        </button>
-        <button class="nav-item" @click="go('/admin/capabilities')">
-          <el-icon><Connection /></el-icon>
-          <span v-if="!collapsed">专家·技能·连接器</span>
-        </button>
-        <button class="nav-item" @click="go('/admin/schedules')">
-          <el-icon><AlarmClock /></el-icon>
-          <span v-if="!collapsed">自动化</span>
-        </button>
-        <button class="nav-item" @click="go('/admin/artifacts')">
-          <el-icon><Files /></el-icon>
-          <span v-if="!collapsed">产物</span>
-        </button>
-      </nav>
+    <nav class="nav-list">
+      <button
+        v-for="it in navItems"
+        :key="it.path"
+        class="nav-item"
+        :class="{ active: isActive(it.path) }"
+        :title="collapsed ? it.label : undefined"
+        @click="go(it.path)"
+      >
+        <el-icon><component :is="it.icon" /></el-icon>
+        <span v-if="!collapsed">{{ it.label }}</span>
+      </button>
+    </nav>
 
-      <!-- 任务流（计划 A2：常驻主区左侧） -->
-      <div v-if="!collapsed" class="group">
-        <div class="group-head" @click="tasksOpen = !tasksOpen">
-          <span>任务 ({{ ws.tasks.length }})</span>
-          <el-icon class="caret"><ArrowDown v-if="tasksOpen" /><ArrowRight v-else /></el-icon>
-        </div>
-        <div v-show="tasksOpen" class="group-body">
-          <div
-            v-for="t in ws.tasks"
-            :key="t.id"
-            class="task-item"
-            :class="{ active: t.id === ws.currentTaskId }"
-            @click="selectTask(t.id)"
-          >
-            <span class="task-title">{{ t.title || '未命名任务' }}</span>
-            <span class="task-meta">{{ t.message_count }}</span>
-          </div>
-          <div v-if="!ws.tasks.length" class="empty-hint">暂无任务</div>
-        </div>
+    <!-- 任务流（计划 A2：常驻主区左侧） -->
+    <div v-if="!collapsed" class="group">
+      <div class="group-head" @click="tasksOpen = !tasksOpen">
+        <span>任务 ({{ ws.tasks.length }})</span>
+        <el-icon class="caret"><ArrowDown v-if="tasksOpen" /><ArrowRight v-else /></el-icon>
       </div>
-
-      <!-- 空间（计划 A7：空间即文件夹） -->
-      <div v-if="!collapsed" class="group">
-        <div class="group-head" @click="spacesOpen = !spacesOpen">
-          <span>空间 ({{ ws.spaces.length }})</span>
-          <el-icon class="caret"><ArrowDown v-if="spacesOpen" /><ArrowRight v-else /></el-icon>
-        </div>
-        <div v-show="spacesOpen" class="group-body">
-          <div v-for="s in ws.spaces" :key="s.id" class="task-item">
-            <el-icon><Folder /></el-icon>
-            <span class="task-title">{{ s.name }}</span>
-            <span class="task-meta">{{ s.sessionIds.length }}</span>
-          </div>
-          <div v-if="!ws.spaces.length" class="empty-hint">暂无空间</div>
-        </div>
-      </div>
-    </template>
-
-    <!-- 后台形态：沿用 13 个功能入口 -->
-    <template v-else>
-      <div class="brand">
-        <span class="logo">A</span>
-        <span v-if="!collapsed" class="name">Agent Platform</span>
-      </div>
-      <nav class="nav-list">
-        <button
-          v-for="it in adminItems"
-          :key="it.path"
-          class="nav-item"
-          :class="{ active: route.path === it.path }"
-          @click="go(it.path)"
+      <div v-show="tasksOpen" class="group-body">
+        <div
+          v-for="t in ws.tasks"
+          :key="t.id"
+          class="task-item"
+          :class="{ active: t.id === ws.currentTaskId }"
+          @click="selectTask(t.id)"
         >
-          <el-icon><component :is="it.icon" /></el-icon>
-          <span v-if="!collapsed">{{ it.label }}</span>
-        </button>
-      </nav>
-    </template>
+          <span class="task-title">{{ t.title || '未命名任务' }}</span>
+          <span class="task-meta">{{ t.message_count }}</span>
+        </div>
+        <div v-if="!ws.tasks.length" class="empty-hint">暂无任务</div>
+      </div>
+    </div>
+
+    <!-- 空间（计划 A7：空间即文件夹） -->
+    <div v-if="!collapsed" class="group">
+      <div class="group-head" @click="spacesOpen = !spacesOpen">
+        <span>空间 ({{ ws.spaces.length }})</span>
+        <el-icon class="caret"><ArrowDown v-if="spacesOpen" /><ArrowRight v-else /></el-icon>
+      </div>
+      <div v-show="spacesOpen" class="group-body">
+        <div v-for="s in ws.spaces" :key="s.id" class="task-item">
+          <el-icon><Folder /></el-icon>
+          <span class="task-title">{{ s.name }}</span>
+          <span class="task-meta">{{ s.sessionIds.length }}</span>
+        </div>
+        <div v-if="!ws.spaces.length" class="empty-hint">暂无空间</div>
+      </div>
+    </div>
 
     <!-- 底部账号区 -->
     <div class="nav-bottom">
@@ -111,11 +76,6 @@
           <span class="acc-ver">v0.1.0 · 单机版</span>
         </span>
       </div>
-      <el-tooltip content="切换 v3 工作台（灰度开关）" placement="right">
-        <button class="icon-btn" :class="{ on: flags.v3 }" @click="flags.toggleV3()">
-          <el-icon><Switch /></el-icon>
-        </button>
-      </el-tooltip>
     </div>
   </aside>
 </template>
@@ -125,11 +85,10 @@ import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   Fold, Expand, Search, Plus, ChatDotRound, Folder, Connection,
-  AlarmClock, Files, Switch, ArrowDown, ArrowRight,
-  Document, MagicStick, Monitor, Setting, DataAnalysis, UserFilled, Suitcase,
+  AlarmClock, Files, ArrowDown, ArrowRight,
+  Document, MagicStick, Monitor, Setting, DataAnalysis, UserFilled,
 } from '@element-plus/icons-vue'
 import { useWorkspaceStore } from '@/stores/workspace'
-import { useFlagsStore } from '@/stores/flags'
 
 const props = defineProps<{ variant?: 'workspace' | 'admin' }>()
 const emit = defineEmits<{ (e: 'search'): void }>()
@@ -137,7 +96,6 @@ const emit = defineEmits<{ (e: 'search'): void }>()
 const route = useRoute()
 const router = useRouter()
 const ws = useWorkspaceStore()
-const flags = useFlagsStore()
 
 const variant = computed(() => props.variant ?? 'workspace')
 const collapsed = computed(() => ws.sidebarCollapsed)
@@ -146,19 +104,32 @@ const isWorkspace = computed(() => route.path === '/workspace')
 const tasksOpen = ref(true)
 const spacesOpen = ref(false)
 
-const adminItems = [
-  { path: '/chat', label: '对话（旧）', icon: ChatDotRound },
-  { path: '/work', label: '工作（旧）', icon: Suitcase },
+/**
+ * 统一导航项（两种布局共用）。
+ *
+ * 合并 v3 工作台入口与旧后台入口，目的：**左侧栏在任何路由下都保持一致**，
+ * 点击只切换右侧内容区（不再出现"对话 → 对话（旧）"这类标签突变）。
+ */
+const navItems = [
+  { path: '/workspace', label: '新建任务', icon: Plus },
+  { path: '/assistant', label: '助理', icon: ChatDotRound },
+  { path: '/spaces', label: '项目', icon: Folder },
   { path: '/admin/capabilities', label: '专家·技能·连接器', icon: UserFilled },
   { path: '/admin/schedules', label: '自动化', icon: AlarmClock },
   { path: '/admin/research', label: '深度研究', icon: DataAnalysis },
-  { path: '/admin/artifacts', label: '我的产物', icon: Files },
+  { path: '/admin/artifacts', label: '产物', icon: Files },
   { path: '/admin/knowledge', label: 'RAG 知识库', icon: Document },
   { path: '/admin/web', label: 'Web 检索', icon: Search },
   { path: '/admin/lab/wr', label: 'WR 范式', icon: MagicStick },
   { path: '/admin/status', label: '系统状态', icon: Monitor },
   { path: '/admin/settings', label: '设置', icon: Setting },
 ]
+
+/** 当前路由的激活判定（兼容 /assistant 与 /workspace 同属工作台） */
+function isActive(path: string): boolean {
+  if (path === '/workspace') return route.path === '/workspace' || route.path === '/assistant'
+  return route.path === path
+}
 
 function go(path: string) { router.push(path) }
 function goWorkspace() { router.push('/workspace') }

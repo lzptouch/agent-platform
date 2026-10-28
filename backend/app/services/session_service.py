@@ -41,7 +41,8 @@ def _session_to_out(db: Session, s: SessionRow) -> SessionOut:
     config = json.loads(s.config_json or "{}")
     return SessionOut(
         id=s.id,
-        mode=s.mode,  # type: ignore[arg-type]
+        mode=("plan" if (s.mode == "work" and s.plan_first) else s.mode),  # type: ignore[arg-type]
+        plan_first=bool(s.plan_first),
         title=s.title,
         team_id=s.team_id,
         skills=config.get("skills"),
@@ -66,12 +67,23 @@ class SessionService:
         skills: list[str] | None = None,
         team_id: str | None = None,
         config: dict | None = None,
+        plan_first: bool = False,
     ) -> SessionOut:
-        if mode not in ("chat", "work"):
+        """创建会话。
+
+        ``mode`` 取值统一为 ``chat | plan | work``；``plan`` 归一落库为
+        ``work + plan_first=1``（与 ``scheduled_tasks`` 的做法一致）。
+        """
+        if mode not in ("chat", "plan", "work"):
             raise ValueError(f"非法模式: {mode}")
+        stored_mode = "work" if mode == "plan" else mode
+        stored_plan_first = 1 if (mode == "plan" or plan_first) else 0
+        if stored_mode == "chat":
+            stored_plan_first = 0
         with db_session() as db:
             row = SessionRow(
-                mode=mode,
+                mode=stored_mode,
+                plan_first=stored_plan_first,
                 title=title.strip(),
                 team_id=team_id,
                 config_json=json.dumps({"skills": skills, "config": config or {}}, ensure_ascii=False),
@@ -90,7 +102,10 @@ class SessionService:
     ) -> tuple[list[SessionOut], int]:
         with db_session() as db:
             stmt = select(SessionRow)
-            if mode:
+            if mode == "plan":
+                # plan 会话落库为 work + plan_first=1
+                stmt = stmt.where(SessionRow.mode == "work", SessionRow.plan_first == 1)
+            elif mode:
                 stmt = stmt.where(SessionRow.mode == mode)
             if not include_archived:
                 stmt = stmt.where(SessionRow.archived == 0)

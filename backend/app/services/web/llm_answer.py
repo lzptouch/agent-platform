@@ -47,7 +47,10 @@ class GPTAnswer:
 
     def get_answer(self, query, relevant_docs, language, output_format, profile):
         # Create an instance of ChatOpenAI and generate an answer
-        llm = ChatOpenAI(model=self.model_name, api_key=self.api_key, temperature=0.0)
+        # LangChain 客户端由 app/core/llm.py 统一提供（与主链路同源）
+        from app.core.llm import get_langchain_chat_model
+
+        llm = get_langchain_chat_model(model=self.model_name, api_key=self.api_key, temperature=0.0)
 
         template = self.config["template"]
         prompt_template = PromptTemplate(

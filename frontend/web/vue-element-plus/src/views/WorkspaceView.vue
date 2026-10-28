@@ -1,7 +1,7 @@
 <template>
-  <div class="workspace">
+  <div class="workspace" :class="{ 'compose-mode': composeMode }">
     <!-- 轻量上下文栏 -->
-    <header class="ws-head">
+    <header v-if="!composeMode" class="ws-head">
       <div class="head-left">
         <span class="title">{{ taskTitle || '新建任务' }}</span>
         <el-tag size="small" effect="plain" :type="mode === 'chat' ? 'success' : mode === 'plan' ? 'info' : 'primary'">
@@ -21,7 +21,7 @@
     </header>
 
     <!-- 对话流 -->
-    <div ref="scrollEl" class="ws-scroll">
+    <div v-if="!composeMode" ref="scrollEl" class="ws-scroll">
       <div class="ws-inner">
         <!-- 空态：居中大标题 + 场景/能力 Chip -->
         <div v-if="!messages.length" class="empty">
@@ -40,7 +40,14 @@
           <div v-for="(m, i) in messages" :key="i" class="msg-wrap">
             <ChatMessage v-if="m.role === 'user'" :message="m" />
             <template v-else>
-              <RunTimeline :steps="m.steps" :running="m.running" />
+              <RoundGroup
+                v-for="g in roundGroups(m)"
+                :key="`${m.runId}:${g.round}`"
+                :run-id="m.runId"
+                :round="g.round"
+                :summary="g.summary"
+                :steps="g.steps"
+              />
               <ChatMessage :message="m" />
               <ArtifactStrip v-if="m.files?.length" :files="m.files" />
             </template>
@@ -84,6 +91,7 @@
           :model-options="modelOptions"
           :disabled="disabled"
           :running="running"
+          :attachments="attachments"
           @update:mode="setMode"
           @update:model="v => (config.model = v)"
           @send="send"
@@ -91,15 +99,39 @@
           @attach="openAt"
           @at="openAt"
           @slash="openCommand"
+          @remove-attachment="removeAttachment"
         />
+        <div v-if="running && currentRunId" class="steer-bar">
+          <el-input
+            v-model="steerText"
+            size="small"
+            placeholder="追加指令（将在下一个工具边界生效；若命令正在执行，则命令结束后生效）"
+            @keyup.enter="submitSteer"
+          />
+          <el-button size="small" type="primary" plain @click="submitSteer">追加</el-button>
+        </div>
+        <div class="meter-row">
+          <RunCostBar :run-id="currentRunId" :running="running" :model="config.model" />
+          <ContextMeter :session-id="ws.currentTaskId" :events="compressEvents" />
+        </div>
         <ContextBar
           :workspace="workspaceName"
           :permissive="permissive"
+          :level="permissions.effectiveLevel"
           @workspace="workspaceName = ''"
           @toggle-permission="permissive = !permissive"
         />
       </div>
     </footer>
+
+    <!-- 权限审批卡（运行中出现待审批动作时弹出） -->
+    <PermissionCard
+      :item="currentApproval"
+      @resolved="onApprovalResolved"
+    />
+
+    <!-- 右栏结果区（S3：产物/文件/变更/浏览器） -->
+    <ResultPanel v-if="!composeMode" :run-id="currentRunId" />
 
     <!-- 命令面板 / 上下文选择 -->
     <CommandPalette
@@ -118,12 +150,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, reactive, onMounted, watch, nextTick } from 'vue'
+import { ref, computed, reactive, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Warning } from '@element-plus/icons-vue'
 import ChatMessage from '@/components/ChatMessage.vue'
-import RunTimeline from '@/components/RunTimeline.vue'
+import RoundGroup from '@/components/RoundGroup.vue'
 import ArtifactStrip from '@/components/ArtifactStrip.vue'
 import PlanCard from '@/components/PlanCard.vue'
 import ComposerInput from '@/components/composer/ComposerInput.vue'
@@ -131,13 +163,23 @@ import ContextChips from '@/components/composer/ContextChips.vue'
 import ContextBar from '@/components/composer/ContextBar.vue'
 import CommandPalette from '@/components/composer/CommandPalette.vue'
 import AtPicker from '@/components/composer/AtPicker.vue'
+import PermissionCard from '@/components/PermissionCard.vue'
+import ResultPanel from '@/components/ResultPanel.vue'
+import RunCostBar from '@/components/RunCostBar.vue'
+import ContextMeter from '@/components/ContextMeter.vue'
+
 import type { PlanStep, AtItem } from '@/types/workspace'
 import { useConfigStore } from '@/stores/config'
+import { usePermissionsStore } from '@/stores/permissions'
+import { useRoundsStore } from '@/stores/rounds'
+import { runCancel, runSteer } from '@/api/desktop'
+import { runsByStatus } from '@/api'
 import { useWorkspaceStore, MODE_LABEL, toBackend, type WorkspaceMode } from '@/stores/workspace'
 import { useSessionStore } from '@/stores/session'
 import { streamAgent, runSSE } from '@/api/sse'
 import { Endpoints } from '@/api/endpoints'
-import { sessionDetail, sessionUpdate, sessionDelete, filesList, runApprove, runReject } from '@/api'
+import { sessionDetail, sessionUpdate, sessionDelete, filesList, filesUpload, runApprove, runReject, runDetail } from '@/api'
+import { checkUploadFile } from '@/api/upload-policy'
 import type { AgentEvent } from '@/api/types'
 
 interface Step {
@@ -152,6 +194,19 @@ interface Step {
   reference_cards?: import('@/api/types').ReferenceCard[]
   title?: string
   text?: string
+  /** 批次 02：该步骤所属轮次 */
+  round?: number
+}
+
+/** 批次 02：轮次摘要（折叠后显示）。 */
+interface RoundInfo {
+  round: number
+  /** 本轮助手输出文本 */
+  text: string
+  /** 本轮工具调用次数 */
+  tools: number
+  /** 摘要（优先压缩器产物，其次事件摘要） */
+  summary: string
 }
 
 interface Msg {
@@ -167,12 +222,52 @@ interface Msg {
   error: string
   running: boolean
   stepSeq: number
+  /** S8：耗时三态（开始/完成时刻，毫秒） */
+  startedAt: number
+  finishedAt?: number
+  /** 批次 02：运行 id（折叠态的键） */
+  runId: string
+  /** 批次 02：轮次信息 */
+  rounds: RoundInfo[]
+  /** 批次 02：当前轮次 */
+  currentRound: number
 }
 
 const route = useRoute()
 const router = useRouter()
 const config = useConfigStore()
 const ws = useWorkspaceStore()
+const permissions = usePermissionsStore()
+const rounds = useRoundsStore()
+
+// ---- 权限审批（S2）：运行中每 2s 拉取待审批列表 ----
+const currentApproval = computed(() => permissions.pendingApprovals[0] ?? null)
+let approvalTimer: ReturnType<typeof setInterval> | null = null
+
+// 运行中任务轮询（S4：左栏并行观察）
+async function refreshRunning(): Promise<void> {
+  try {
+    const data = await runsByStatus('running', 50)
+    ws.runningRunIds = data.items.map((r) => String(r.session_id ?? '')).filter(Boolean)
+  } catch {
+    // 轮询失败不影响主流程
+  }
+}
+let runningTimer: ReturnType<typeof setInterval> | null = null
+
+function startApprovalPolling(): void {
+  if (approvalTimer) return
+  void permissions.pollPending()
+  approvalTimer = setInterval(() => void permissions.pollPending(), 2000)
+}
+function stopApprovalPolling(): void {
+  if (approvalTimer) { clearInterval(approvalTimer); approvalTimer = null }
+  if (runningTimer) { clearInterval(runningTimer); runningTimer = null }
+}
+function onApprovalResolved(id: number): void {
+  permissions.pendingApprovals = permissions.pendingApprovals.filter(a => a.id !== id)
+}
+
 const sessionStore = useSessionStore()
 
 const messages = ref<Msg[]>([])
@@ -186,13 +281,25 @@ const atVisible = ref(false)
 const workspaceName = ref('')
 const permissive = ref(false)
 const fileOptions = ref<Array<{ name: string; size?: number }>>([])
+/** 附件（批次 02）：上限 50 个，添加后不自动发送。 */
+const MAX_ATTACHMENTS = 50
+const attachments = ref<Array<{ name: string; size: number; url: string }>>([])
+
+/** 壳事件订阅的退订函数（批次 02）。 */
+let unsubscribeOpenRun: (() => void) | null = null
+let unsubscribeClipboard: (() => void) | null = null
 
 const caps = reactive<Record<string, boolean>>({ mcp: false, rag: true, web: false, reflection: false, research: false })
 
 const approval = ref<{ run_id: string; plan: PlanStep[] } | null>(null)
+const currentRunId = ref<string | null>(null)
+// S5：压缩事件（供上下文计量表展开查看）
+const compressEvents = ref<Array<Record<string, unknown>>>([])
 const approvalStatus = ref<'pending' | 'approved' | 'rejected'>('pending')
 
 const mode = computed<WorkspaceMode>(() => ws.mode)
+/** 速记形态（批次 02）：``?compose=1`` —— 只留输入区。 */
+const composeMode = computed(() => route.query.compose === '1')
 const currentSessionId = computed(() => ws.currentTaskId)
 const taskTitle = computed(() => {
   const t = ws.tasks.find(x => x.id === ws.currentTaskId)
@@ -219,11 +326,33 @@ let ctl: AbortController | null = null
 let currentAssistant: Msg | null = null
 
 onMounted(async () => {
+  startApprovalPolling()
+  void permissions.refresh()
+  void refreshRunning()
+  runningTimer = setInterval(() => void refreshRunning(), 3000)
+
+  // 批次 02：全页拖拽命中（页面任意处拖入文件即进入附件区）
+  window.addEventListener('dragover', onDragOver)
+  window.addEventListener('drop', onDrop)
+  // 批次 02：壳事件（通知点击跳转 / 速记剪贴板预填）
+  unsubscribeOpenRun = window.agentDesktop?.onOpenRun?.(v => void onOpenRun(v)) ?? null
+  unsubscribeClipboard = window.agentDesktop?.onClipboard?.(text => {
+    if (composeMode.value && !prompt.value) prompt.value = text
+  }) ?? null
+
   if (!config.ready) await config.init()
   await ws.loadTasks()
   await loadFiles()
   applyQuery()
   if (ws.currentTaskId) await loadHistory(ws.currentTaskId)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('dragover', onDragOver)
+  window.removeEventListener('drop', onDrop)
+  unsubscribeOpenRun?.()
+  unsubscribeClipboard?.()
+  stopApprovalPolling()
 })
 
 watch(() => route.query.task, async v => {
@@ -271,8 +400,9 @@ async function loadHistory(sessionId: string) {
         ? { role: 'user', content: m.content } as Msg
         : {
             role: 'assistant', steps: [], texts: [m.content], skills: [], allSkills: [],
-            thinking: '', files: (m.files ?? []) as Msg['files'], done: true,
+            thinking: '', files: (m.files ?? []) as Msg['files'], done: true, startedAt: 0,
             error: String(m.meta?.error ?? ''), running: false, stepSeq: 0,
+            runId: '', rounds: [], currentRound: 0,
           } as Msg)
     scrollToBottom()
   } catch {
@@ -284,13 +414,55 @@ function newMsg(): Msg {
   return {
     role: 'assistant', steps: [], texts: [], skills: [], allSkills: [],
     thinking: '', files: [], done: false, error: '', running: true, stepSeq: 0,
+    startedAt: Date.now(),
+    runId: '', rounds: [], currentRound: 0,
   }
+}
+
+/** 把消息的步骤按轮次分组（批次 02：折叠接线）。 */
+function roundGroups(m: Msg): Array<{ round: number; steps: Step[]; summary: string }> {
+  const groups: Array<{ round: number; steps: Step[]; summary: string }> = []
+  let cur: { round: number; steps: Step[]; summary: string } = { round: 0, steps: [], summary: '' }
+  for (const s of m.steps) {
+    const marker = s.kind === 'plan' && /^第 \d+ 轮$/.test(s.title ?? '')
+    if (marker) {
+      groups.push(cur)
+      cur = { round: Number((s.title ?? '').replace(/[^\d]/g, '')) || 0, steps: [], summary: '' }
+      continue
+    }
+    cur.steps.push(s)
+  }
+  groups.push(cur)
+  return groups.map((g, i) => {
+    const info = m.rounds[i]
+    return { round: info?.round ?? g.round, steps: g.steps, summary: info?.summary ?? '' }
+  })
+}
+
+/** 轮次收尾：补摘要 + 自动折叠该轮（折叠态存在 ``stores/rounds``）。 */
+function finalizeRounds(a: Msg): void {
+  for (const r of a.rounds) {
+    if (r.summary) continue
+    const t = r.text.trim().replace(/\s+/g, ' ')
+    r.summary = t ? t.slice(0, 80) : (r.tools ? `调用了 ${r.tools} 个工具` : '（本轮无输出）')
+  }
+  if (!a.runId) return
+  for (const r of a.rounds) rounds.collapseRound(a.runId, r.round)
 }
 
 async function send() {
   const text = prompt.value.trim()
   if (!text || running.value) return
   errorBanner.value = ''
+
+  // 附件以「上下文块」随提示词下发（批次 02）——附件本身已落到后端产出目录
+  const attBlock = attachments.value.length
+    ? `\n\n【附件】\n${attachments.value
+        .map(a => `- ${a.name}（${a.size} 字节）→ ${a.url}`)
+        .join('\n')}`
+    : ''
+  const fullPrompt = text + attBlock
+  attachments.value = []
 
   let sessionId = ws.currentTaskId
   const { mode: backendMode, plan_first } = toBackend(mode.value)
@@ -324,7 +496,7 @@ async function send() {
   ctl = new AbortController()
   try {
     await streamAgent(Endpoints.agentRun, {
-      prompt: text,
+      prompt: fullPrompt,
       model: config.model,
       mode: backendMode,
       plan_first,
@@ -349,9 +521,34 @@ async function send() {
   }
 }
 
-function stop() {
-  ctl?.abort()
+async function stop() {
+  // S4：以后端状态为准 —— 先请求 cancel（真中止），abort 只作连接层清理
+  const rid = currentRunId.value
   running.value = false
+  if (rid) {
+    try {
+      await runCancel(rid)
+      ElMessage.info('已请求停止（正在执行的命令结束后生效）')
+    } catch {
+      // 后端可能已结束（幂等）
+    }
+  }
+  ctl?.abort()
+}
+
+// ---- 追加指令（S4）：注入下一个工具边界 ----
+const steerText = ref('')
+async function submitSteer(): Promise<void> {
+  const rid = currentRunId.value
+  const text = steerText.value.trim()
+  if (!rid || !text) return
+  try {
+    await runSteer(rid, text)
+    steerText.value = ''
+    ElMessage.info('指令已排队（将在下一个工具边界生效）')
+  } catch (e: unknown) {
+    ElMessage.error(`追加失败：${(e as Error).message}`)
+  }
 }
 
 async function onApprove(edited: PlanStep[]) {
@@ -395,7 +592,20 @@ async function onReject() {
 
 function appendEvent(a: Msg, ev: AgentEvent) {
   switch (ev.type) {
+    case 'context_compressed':
+      compressEvents.value = [...compressEvents.value, ev as unknown as Record<string, unknown>]
+      // 压缩器产物优先作为轮次摘要
+      {
+        const summary = String((ev as unknown as { summary?: string }).summary ?? '').trim()
+        const last = a.rounds[a.rounds.length - 1]
+        if (summary && last) last.summary = summary
+      }
+      break
     case 'meta':
+      if (ev.run_id) {
+        currentRunId.value = ev.run_id
+        a.runId = ev.run_id
+      }
       if (ev.session_id && ev.session_id !== ws.currentTaskId) {
         ws.selectTask(ev.session_id)
         router.replace({ path: '/workspace', query: { ...route.query, task: ev.session_id } })
@@ -403,7 +613,7 @@ function appendEvent(a: Msg, ev: AgentEvent) {
       }
       break
     case 'notice':
-      a.steps.push({ step_id: ++a.stepSeq, kind: 'plan', title: '提示', text: ev.content })
+      a.steps.push({ step_id: ++a.stepSeq, kind: 'plan', title: '提示', text: ev.content, round: a.currentRound })
       break
     case 'skills_selected':
       a.skills = ev.skills
@@ -414,7 +624,9 @@ function appendEvent(a: Msg, ev: AgentEvent) {
     case 'user_input':
       break
     case 'round_start':
-      a.steps.push({ step_id: ++a.stepSeq, kind: 'plan', title: `第 ${ev.round} 轮`, text: '' })
+      a.currentRound = ev.round
+      a.steps.push({ step_id: ++a.stepSeq, kind: 'plan', title: `第 ${ev.round} 轮`, text: '', round: ev.round })
+      a.rounds.push({ round: ev.round, text: '', tools: 0, summary: '' })
       break
     case 'round_input':
       a.steps.push({
@@ -438,6 +650,10 @@ function appendEvent(a: Msg, ev: AgentEvent) {
       break
     case 'model_text':
       a.texts.push(ev.content)
+      {
+        const last = a.rounds[a.rounds.length - 1]
+        if (last) last.text += ev.content
+      }
       break
     case 'reasoning_delta':
       a.thinking += ev.content
@@ -446,7 +662,12 @@ function appendEvent(a: Msg, ev: AgentEvent) {
       a.steps.push({
         step_id: ++a.stepSeq, kind: 'tool', tool_name: ev.tool_name,
         tool_input: ev.tool_input, tool_source: ev.tool_source ?? 'builtin', mcp_server: ev.mcp_server ?? null,
+        round: a.currentRound,
       })
+      {
+        const last = a.rounds[a.rounds.length - 1]
+        if (last) last.tools += 1
+      }
       break
     case 'tool_result': {
       for (let i = a.steps.length - 1; i >= 0; i--) {
@@ -471,11 +692,17 @@ function appendEvent(a: Msg, ev: AgentEvent) {
     case 'error':
       a.error = ev.content
       a.running = false
+      a.finishedAt = Date.now()
       errorBanner.value = ev.content
+      finalizeRounds(a)
       break
     case 'done':
       a.done = true
       a.running = false
+      a.finishedAt = Date.now()
+      finalizeRounds(a)
+      // 速记形态：运行结束后关小窗并把任务交给主窗口（批次 02）
+      if (composeMode.value && a.runId) void window.agentDesktop?.openRun?.(a.runId)
       break
   }
   scrollToBottom()
@@ -499,6 +726,64 @@ function onScene(key: string) {
 
 function openCommand() { cmdVisible.value = true }
 function openAt() { atVisible.value = true }
+
+// --------------------------------------------------------------------------- //
+// 附件（批次 02）：全页拖拽 + 上限 50 + 类型/大小预检
+// --------------------------------------------------------------------------- //
+function onDragOver(e: DragEvent): void {
+  if (!e.dataTransfer?.types?.includes('Files')) return
+  // 必须阻止默认行为，否则浏览器会直接打开被拖入的文件
+  e.preventDefault()
+}
+
+async function onDrop(e: DragEvent): Promise<void> {
+  const files = e.dataTransfer?.files
+  if (!files || !files.length) return
+  e.preventDefault()
+  await addFiles(Array.from(files))
+}
+
+async function addFiles(files: File[]): Promise<void> {
+  if (!files.length) return
+  if (attachments.value.length + files.length > MAX_ATTACHMENTS) {
+    ElMessage.error(`附件数量已达上限（${MAX_ATTACHMENTS} 个）`)
+    return
+  }
+  for (const f of files) {
+    const reason = checkUploadFile(f)
+    if (reason) {
+      ElMessage.error(`${f.name}：${reason}`)
+      continue
+    }
+    try {
+      const fd = new FormData()
+      fd.append('file', f)
+      const res = await filesUpload(fd)
+      attachments.value = [...attachments.value, { name: res.name, size: res.size, url: res.url }]
+    } catch (err: unknown) {
+      ElMessage.error(`${f.name} 上传失败：${(err as Error).message ?? err}`)
+    }
+  }
+}
+
+function removeAttachment(index: number): void {
+  attachments.value = attachments.value.filter((_, i) => i !== index)
+}
+
+/** 通知点击 → 定位到对应 run（批次 02）。 */
+async function onOpenRun(runId: string): Promise<void> {
+  try {
+    const rec = await runDetail(runId)
+    const sid = rec.session_id
+    if (!sid) return
+    ws.selectTask(sid)
+    await loadHistory(sid)
+    router.replace({ path: '/workspace', query: { ...route.query, task: sid } })
+    void ws.loadTasks()
+  } catch {
+    // run 不存在或后端不可达：保持当前视图
+  }
+}
 
 function onCommand(key: string) {
   if (key === 'new-task') { void newTask(); return }
@@ -554,6 +839,9 @@ function scrollToBottom() {
 
 <style scoped>
 .workspace { flex: 1; min-width: 0; display: flex; flex-direction: column; height: 100%; background: var(--bg); }
+/* 速记形态（批次 02）：输入区居中，不显示历史与右栏 */
+.workspace.compose-mode .ws-composer { justify-content: center; padding: 24px 16px; }
+.workspace.compose-mode .composer-wrap { width: 100%; max-width: 620px; }
 .ws-head {
   display: flex; justify-content: space-between; align-items: center;
   padding: 10px 20px; border-bottom: 1px solid var(--border); flex: 0 0 auto;
@@ -577,4 +865,6 @@ function scrollToBottom() {
 .ws-composer { flex: 0 0 auto; padding: 8px 20px 14px; }
 .composer-wrap { max-width: 640px; margin: 0 auto; }
 .cap-chips { margin-bottom: 8px; }
+.steer-bar { display: flex; gap: 6px; padding: 0 24px 8px; }
+.meter-row { display: flex; gap: 16px; align-items: center; padding: 0 24px 6px; justify-content: center; }
 </style>

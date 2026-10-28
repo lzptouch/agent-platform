@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -27,6 +28,8 @@ def _setup_db():
     init_db()
     yield
     reset_engine()
+    # 清理本会话自建的临时目录（否则每次跑测试都会在系统临时目录留下残留）
+    shutil.rmtree(_TMP_DIR, ignore_errors=True)
 
 
 @pytest.fixture(autouse=True)

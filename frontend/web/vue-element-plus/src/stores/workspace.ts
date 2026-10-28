@@ -33,8 +33,6 @@ export interface Space {
   sessionIds: string[]
 }
 
-const SPACES_KEY = '__ws_spaces'
-
 export const useWorkspaceStore = defineStore('workspace', () => {
   /** 全部任务（跨 chat/work 模式，不做 mode 过滤 —— 对齐 Trae/WorkBuddy 的统一任务流） */
   const tasks = ref<Session[]>([])
@@ -42,24 +40,12 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const loading = ref(false)
   const mode = ref<WorkspaceMode>('chat')
   const sidebarCollapsed = ref(false)
+  /** 运行中的会话 id（S4：左栏并行任务观察） */
+  const runningRunIds = ref<string[]>([])
 
-  /** 空间分组（后端 spaces 接口未就绪，先用本地存储落地，接口就绪后切换） */
-  const spaces = ref<Space[]>(readSpaces())
-
-  function readSpaces(): Space[] {
-    try {
-      const raw = localStorage.getItem(SPACES_KEY)
-      if (raw) {
-        const arr = JSON.parse(raw) as Space[]
-        if (Array.isArray(arr)) return arr
-      }
-    } catch { /* */ }
-    return []
-  }
-
-  function persistSpaces() {
-    try { localStorage.setItem(SPACES_KEY, JSON.stringify(spaces.value)) } catch { /* */ }
-  }
+  /** 空间分组（**占位**：后端无空间接口，不再用 localStorage 假落盘 —— 刷新后不留假数据。
+   *  空间在后端工作空间/资料库能力（S3）就绪后改为接真实接口。） */
+  const spaces = ref<Space[]>([])
 
   const ungrouped = computed(() => {
     const inSpace = new Set(spaces.value.flatMap(s => s.sessionIds))
@@ -91,6 +77,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   function toggleSidebar() { sidebarCollapsed.value = !sidebarCollapsed.value }
 
   function assignSpace(sessionId: string, spaceId: string | null) {
+    // 仅内存态（不落盘）：后端空间接口（S3）就绪后再接持久化
     spaces.value = spaces.value.map(s => ({
       ...s,
       sessionIds: s.sessionIds.filter(id => id !== sessionId),
@@ -99,7 +86,6 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       const hit = spaces.value.find(s => s.id === spaceId)
       if (hit) hit.sessionIds.push(sessionId)
     }
-    persistSpaces()
   }
 
   function ensureSpace(name: string): Space {
@@ -107,12 +93,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     if (found) return found
     const created: Space = { id: `sp_${Date.now().toString(36)}`, name, sessionIds: [] }
     spaces.value = [...spaces.value, created]
-    persistSpaces()
     return created
   }
 
   return {
-    tasks, currentTaskId, loading, mode, sidebarCollapsed, spaces, ungrouped,
+    tasks, currentTaskId, loading, mode, sidebarCollapsed, spaces, ungrouped, runningRunIds,
     loadTasks, createTask, selectTask, setMode, toggleSidebar, assignSpace, ensureSpace,
   }
 })

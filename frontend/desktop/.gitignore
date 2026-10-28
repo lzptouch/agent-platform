@@ -1,0 +1,6 @@
+node_modules/
+dist-main/
+dist-preload/
+release/
+.stage/
+*.log

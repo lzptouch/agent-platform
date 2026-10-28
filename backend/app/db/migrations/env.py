@@ -19,7 +19,9 @@ from app.db.models import Base  # noqa: E402
 
 config = context.config
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # disable_existing_loggers=False：否则 fileConfig 会把应用自己的 logger
+    # （agent / uvicorn 等）整体禁用，迁移之后应用日志会**一条都不出**（批次 03 实测）。
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata
 

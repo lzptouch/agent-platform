@@ -11,7 +11,9 @@ from fastapi import FastAPI
 from app.core.config import settings
 from app.services.agent_service import AgentService
 from app.services.code_executor import LocalCodeExecutor
+from app.services.desktop_service import DesktopService
 from app.services.mcp_manager import MCPManager
+from app.services.permissions import PermissionService
 from app.services.research.research_manager import ResearchManager
 from app.services.run_executor import RunExecutor
 from app.services.run_service import RunService
@@ -39,6 +41,8 @@ def init_app_state(app: FastAPI, force: bool = False) -> None:
     agent_service = AgentService(skill_manager, executor, mcp_manager, tool_registry)
     run_executor = RunExecutor(agent_service, session_service, run_service, team_service)
     scheduler_service = SchedulerService(run_executor)
+    desktop_service = DesktopService()
+    permission_service = PermissionService()
 
     app.state.skill_manager = skill_manager
     app.state.executor = executor
@@ -51,4 +55,6 @@ def init_app_state(app: FastAPI, force: bool = False) -> None:
     app.state.run_executor = run_executor
     app.state.scheduler_service = scheduler_service
     app.state.agent_service = agent_service
+    app.state.desktop_service = desktop_service
+    app.state.permission_service = permission_service
     app.state.initialized = True

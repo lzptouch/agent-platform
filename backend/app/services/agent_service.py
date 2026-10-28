@@ -11,12 +11,21 @@ from __future__ import annotations
 import json
 import logging
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import datetime
 from typing import Any
 
 from app.core.config import PROJECT_ROOT, settings
 from app.services.code_executor import LocalCodeExecutor
+from app.services.exec.accounting import CallUsage, Timer, record_call
+from app.services.exec.catalog import ToolLoader, build_catalog, catalog_text, search_catalog
+from app.services.exec.context import (
+    ContextBudget,
+    build_nine_section_summary,
+    compress,
+    estimate_tokens,
+    trim_messages,
+)
 from app.services.mcp_manager import MCPManager
 from app.services.skill_manager import SkillManager
 from app.services.tool_registry import BUILTIN_TOOLS, ToolProfile, ToolRegistry
@@ -120,6 +129,11 @@ class AgentService:
     ) -> None:
         self.skill_manager = skill_manager
         self.executor = executor or LocalCodeExecutor()
+        # S5 上下文状态
+        self._tool_loader: ToolLoader | None = None
+        self._tool_catalog: list = []
+        self._current_run_id: str | None = None
+        self._current_session_id: str | None = None
         self.mcp_manager = mcp_manager or MCPManager()
         self.tool_registry = tool_registry or ToolRegistry(self.mcp_manager)
         self._client = None
@@ -133,12 +147,10 @@ class AgentService:
                 "未配置 DASHSCOPE_API_KEY。请在项目根目录 .env 中设置后重启服务。"
             )
         if self._client is None:
-            from openai import OpenAI
+            # 客户端统一由 app/core/llm.py 工厂提供
+            from app.core.llm import get_llm_client
 
-            self._client = OpenAI(
-                api_key=settings.dashscope_api_key,
-                base_url=settings.dashscope_base_url,
-            )
+            self._client = get_llm_client("dashscope")
         return self._client
 
     def is_ready(self) -> bool:
@@ -200,6 +212,10 @@ class AgentService:
         plan: list[dict] | None = None,
         plan_first: bool = False,
         deadline: float | None = None,
+        steer_hook: Callable[[], list[str]] | None = None,
+        cancel_hook: Callable[[], bool] | None = None,
+        run_id: str | None = None,
+        session_id: str | None = None,
     ) -> Iterator[dict]:
         """运行 Agent 并逐步产出事件字典。
 
@@ -211,8 +227,12 @@ class AgentService:
             plan: 已批准的计划（恢复执行时注入 system prompt）。
             plan_first: 先生成计划并等待人工确认（仅 work 模式）。
             deadline: 协作式超时（``time.monotonic()`` 秒），每轮迭代前检查。
+            steer_hook: 运行时介入（steer）——每轮迭代前调用，返回待并入本轮上下文的指令。
+            cancel_hook: 运行中止检查——每轮迭代前调用，返回 True 则结束本次运行。
         """
         model = model or settings.default_model
+        self._current_run_id = run_id
+        self._current_session_id = session_id
         profile = ToolProfile.CHAT if mode == "chat" else ToolProfile.WORK
         selected_skills = self.skill_manager.resolve_for_mode(skills, mode)
         tools = self.tool_registry.get_combined_tools(
@@ -237,6 +257,20 @@ class AgentService:
         if extra_section:
             system_prompt = system_prompt + "\n\n" + extra_section
 
+        # ---- S5 / WP-5.1 工具目录与延迟装载 ----
+        # 目录（name + 一句话描述 + 命名空间）常驻；完整 Schema 只注入核心工具，
+        # 其余按需 tool_load。关闭开关即退回全量注入（降级）。
+        self._tool_loader = ToolLoader(tools)
+        self._tool_catalog = build_catalog(tools)
+        if settings.context_lazy_tool_loading:
+            tools = self._tool_loader.schema_list()
+            system_prompt = system_prompt + "\n\n" + (
+                "[可用工具目录]\n" + catalog_text(self._tool_catalog)
+                + "\n需要某个工具的完整参数时，先调用 tool_search 检索、再调用 tool_load 装载。"
+            )
+        else:
+            tools = list(tools)
+
         if plan:
             plan_lines = "\n".join(
                 f"{p.get('id', i)}. {p.get('title', '')}：{p.get('detail', '')}"
@@ -260,7 +294,8 @@ class AgentService:
         # Plan-first：只产计划，等待审批
         if plan_first and mode == "work" and plan is None:
             plan_steps = self._generate_plan(user_prompt)
-            yield {"type": "approval_required", "plan": plan_steps}
+            # run_id 前端必填（D-39）：即使本层没有 run_id 也要带出该键
+            yield {"type": "approval_required", "run_id": run_id, "plan": plan_steps}
             yield {"type": "done", "status": "awaiting_approval"}
             return
 
@@ -272,6 +307,7 @@ class AgentService:
         yield from self._stream_loop(
             user_prompt, model, tools, system_prompt,
             history=history, deadline=deadline, max_iterations=max_iterations,
+            steer_hook=steer_hook, cancel_hook=cancel_hook,
         )
 
     def _generate_plan(self, user_prompt: str) -> list[dict]:
@@ -301,6 +337,60 @@ class AgentService:
         return [{"id": 1, "title": "执行任务", "detail": user_prompt[:120]}]
 
     # ------------------------------------------------------------------ #
+    # S5 辅助：记忆注入与调用计量
+    # ------------------------------------------------------------------ #
+    def _inject_memories(self, messages: list[dict], user_prompt: str) -> list[dict]:
+        """按作用域预筛记忆，**至多 context_memory_max 条**注入。"""
+        if not settings.context_memory_enabled:
+            return messages
+        try:
+            from app.services.exec import memory as mem
+
+            mem.refresh_index()
+            picked = mem.select_memories(user_prompt, limit=settings.context_memory_max)
+            if not picked:
+                return messages
+            mem.mark_used([m.path for m in picked])
+            block = "\n".join(f"- [{m.scope}] {m.path}：{m.summary}" for m in picked)
+            messages.insert(1, {
+                "role": "system",
+                "content": f"[相关记忆]\n{block}",
+            })
+        except Exception as exc:  # noqa: BLE001 —— 记忆失败不阻断主流程
+            logger.warning("记忆注入失败: %s", exc)
+        return messages
+
+    def _record_usage(self, model: str, messages: list[dict], response: object, latency_ms: int) -> None:
+        """记录一次 LLM 调用的计量（含单价快照）。"""
+        try:
+            prompt_tokens = estimate_tokens("".join(
+                str(m.get("content") or "") for m in messages
+            ))
+            completion_tokens = 0
+            usage_obj = getattr(response, "usage", None)
+            if usage_obj is not None:
+                prompt_tokens = int(getattr(usage_obj, "prompt_tokens", prompt_tokens) or prompt_tokens)
+                completion_tokens = int(getattr(usage_obj, "completion_tokens", 0) or 0)
+            else:
+                choices = getattr(response, "choices", None) or []
+                if choices:
+                    completion_tokens = estimate_tokens(str(
+                        getattr(getattr(choices[0], "message", None), "content", "") or ""
+                    ))
+            record_call(
+                CallUsage(
+                    model=model,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    latency_ms=latency_ms,
+                ),
+                run_id=self._current_run_id,
+                session_id=self._current_session_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("计量记录失败（不影响主流程）: %s", exc)
+
+    # ------------------------------------------------------------------ #
     # 模式 1：默认显式循环（OpenAI 兼容 function calling）
     # ------------------------------------------------------------------ #
     def _stream_loop(
@@ -312,9 +402,13 @@ class AgentService:
         history: list[dict] | None = None,
         deadline: float | None = None,
         max_iterations: int | None = None,
+        steer_hook: Callable[[], list[str]] | None = None,
+        cancel_hook: Callable[[], bool] | None = None,
     ) -> Iterator[dict]:
         limit = max_iterations or settings.max_iterations
         messages: list[dict] = [{"role": "system", "content": system_prompt}]
+        # S5 / WP-5.4 记忆注入（至多 context_memory_max 条）
+        messages = self._inject_memories(messages, user_prompt)
         for item in history or []:
             # 只回放最终问答，绝不回放 tool / tool_calls 消息（会破坏协议配对）
             if item.get("role") in ("user", "assistant") and item.get("content"):
@@ -336,19 +430,89 @@ class AgentService:
             if deadline is not None and time.monotonic() > deadline:
                 yield {"type": "error", "content": "timeout: 超过执行时限"}
                 break
+            if cancel_hook is not None and cancel_hook():
+                # S4：取消在**工具边界**生效（轮次起点 + 每次工具调用前后）
+                yield {"type": "interrupted", "content": "运行已被取消", "phase": "round"}
+                yield {"type": "done"}
+                break
+            if steer_hook is not None:
+                injected: list[dict] = []
+                for item in steer_hook() or []:
+                    # 兼容两种形态：纯字符串 / {text, mode}
+                    if isinstance(item, dict):
+                        text = str(item.get("text", "")).strip()
+                        mode = str(item.get("mode", "append"))
+                        seq = item.get("seq")
+                    else:
+                        text = str(item).strip()
+                        mode = "append"
+                        seq = None
+                    if not text:
+                        continue
+                    # 保留 seq（保序依据）
+                    injected.append({"text": text, "mode": mode, "seq": seq})
+                # 保序：按 seq 排序（不依赖钩子实现是否已排序）
+                injected.sort(key=lambda x: (0 if "seq" not in x else 1, x.get("seq", 0)))
+                if injected:
+                    # 事件可回放（S4 / WP-4.3）：steer_injected
+                    yield {
+                        "type": "steer_injected",
+                        "instructions": [i["text"] for i in injected],
+                        "modes": [i["mode"] for i in injected],
+                    }
+                    for item in injected:
+                        if item["mode"] == "replace_plan":
+                            # 丢弃当前计划上下文，回到规划（下一轮重新出方案）
+                            messages = [m for m in messages if m.get("role") != "assistant" or not m.get("tool_calls")]
+                            yield {"type": "plan_replaced", "content": item["text"]}
+                        messages.append({"role": "user", "content": item["text"]})
             yield {"type": "round_start", "round": iteration + 1}
             yield {"type": "round_input", "messages": self._summarize_messages(messages)}
 
-            try:
-                response = client.chat.completions.create(
-                    model=model,
-                    max_tokens=settings.max_tokens,
-                    messages=messages,
-                    tools=openai_tools,
+            # ---- S5 / WP-5.2~5.3 上下文预算与压缩 ----
+            budget = ContextBudget.for_model(model, settings.context_budget_ratio)
+            usage = budget.usage(messages)
+            if usage["ratio"] >= settings.context_summary_threshold:
+                # 强摘要（九段结构）
+                summary = build_nine_section_summary(
+                    intent=str(messages[-1].get("content") or "")[:200],
+                    current=f"占用 {usage['ratio']:.0%}（{usage['tokens']} tokens）",
                 )
+                result = compress(
+                    messages, budget, summary, mode="contextSummary",
+                    keep_recent_turns=settings.context_keep_recent_turns,
+                )
+                messages = result.messages
+                yield {"type": "context_compressed", **result.event_payload()}
+            elif usage["ratio"] >= settings.context_compact_threshold:
+                # 轻量裁剪（先丢最旧历史，保留系统提示与最近 N 轮）
+                trimmed = trim_messages(
+                    messages, budget,
+                    keep_recent_turns=settings.context_keep_recent_turns,
+                )
+                if trimmed.dropped:
+                    messages = trimmed.messages
+                    yield {
+                        "type": "context_trimmed",
+                        "dropped": trimmed.dropped,
+                        "tokens": budget.usage(messages)["tokens"],
+                        "ratio": budget.usage(messages)["ratio"],
+                    }
+
+            try:
+                with Timer() as timer:
+                    response = client.chat.completions.create(
+                        model=model,
+                        max_tokens=settings.max_tokens,
+                        messages=messages,
+                        tools=openai_tools,
+                    )
             except Exception as exc:  # 网络 / 鉴权 / 限流等
                 yield {"type": "error", "content": f"{type(exc).__name__}: {exc}"}
                 break
+
+            # ---- S5 / WP-5.5 计量（旁路写入，失败不影响主流程） ----
+            self._record_usage(model, messages, response, timer.elapsed_ms)
 
             assistant_msg = response.choices[0].message
             tool_calls = assistant_msg.tool_calls or []
@@ -395,6 +559,12 @@ class AgentService:
                     "mcp_server": self._mcp_server_of(tool_name),
                 }
 
+                if cancel_hook is not None and cancel_hook():
+                    # 工具调用**前**检查：已取消则不再发起本次调用
+                    yield {"type": "interrupted", "content": "运行已被取消", "phase": "before_tool"}
+                    yield {"type": "done"}
+                    break
+
                 result_str, source, extra = self.tool_registry.dispatch(
                     tool_name, tool_input, self.executor
                 )
@@ -406,6 +576,12 @@ class AgentService:
                     "tool_source": source,
                     "mcp_server": extra.get("mcp_server"),
                 }
+                if cancel_hook is not None and cancel_hook():
+                    # 工具调用**后**检查：本次结果保留，但不再进入下一轮
+                    yield event
+                    yield {"type": "interrupted", "content": "运行已被取消", "phase": "after_tool"}
+                    yield {"type": "done"}
+                    break
                 if extra.get("references"):
                     event["references"] = extra["references"]
                 if extra.get("reference_cards"):

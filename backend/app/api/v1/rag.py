@@ -43,7 +43,11 @@ def rag_retrieval_only(req: RagQueryRequest):
 
 
 @router.post("/ingest", response_model=IngestResponse, summary="解析 data/pdf/ 并入库 Milvus")
-def rag_ingest(recreate: bool = True):
+def rag_ingest(recreate: bool = False):
+    """入库（默认**增量幂等**：内容未变的文件直接跳过，不新增 chunk）。
+
+    ``recreate=true`` 才会重建 collection（全量重灌）。
+    """
     try:
         return IngestResponse(**ingest(recreate=recreate))
     except Exception as e:

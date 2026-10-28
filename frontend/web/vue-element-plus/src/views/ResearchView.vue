@@ -128,7 +128,7 @@ const providerLabel = computed(() => {
 })
 const canSubmit = computed(() => !!health.value?.search_configured && !!task.value.trim() && !submitting.value)
 
-// 24 个 stage（与 frontend/docs/sse-protocol.md 对齐）
+// 24 个 stage（与后端 research_service 的 stage 取值一致，见 doc/analysis/07_DeepResearch链路.md）
 const STAGE_LABEL: Record<string, string> = {
   decomposing: '分析任务', decomposed: '拆解完成', dispatching: '分发 Worker',
   worker_started: 'Worker 启动', worker_completed: 'Worker 完成', worker_failed: 'Worker 失败',

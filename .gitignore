@@ -13,10 +13,17 @@ venv/
 
 # 构建产物与运行日志
 dist/
-build/
+^build/                     # 只忽略仓库根的 build/；frontend/desktop/build/** 曾被此规则误屏蔽
+frontend/desktop/release/       # electron-builder 产物（安装包），不得入库
+frontend/desktop/dist-main/     # 壳编译产物
+frontend/desktop/dist-preload/  # 壳 preload 编译产物
+frontend/desktop/.stage/        # portable Python 运行时暂存
 *.log
 outputs/
 .tmp/
+.pytest_tmp/           # pytest --basetemp 隔离目录
+tests/report/          # 端到端测试产物（截图 / trace / 报告）
+tests/.work/           # 端到端测试临时数据
 
 # 运行时数据（SQLite 数据库 / 向量库 / 产物 / 上传 / 自定义 Skill）
 backend/data/

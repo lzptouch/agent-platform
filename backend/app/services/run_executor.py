@@ -14,6 +14,7 @@ from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
 from app.core.config import settings
+from app.core.logging import bind_context, reset_context
 
 if TYPE_CHECKING:
     from app.services.agent_service import AgentService
@@ -41,6 +42,67 @@ class RunExecutor:
         self.team_service = team_service
         # 全局并发护栏（仅调度/阻塞执行使用，交互式 SSE 不占用）
         self._semaphore = threading.BoundedSemaphore(settings.schedule_max_concurrent)
+        # 运行控制：steer 待注入指令 / cancel 中止标志（按 run_id）
+        self._steer_queue: dict[str, list[str]] = {}
+        self._cancel_flags: dict[str, threading.Event] = {}
+        self._control_lock = threading.Lock()
+
+    # ------------------------------------------------------------------ #
+    # 运行控制（中止 / 介入转向）
+    # ------------------------------------------------------------------ #
+    def request_cancel(self, run_id: str) -> bool:
+        """请求中止运行。
+
+        置位取消标志（下一轮迭代起点生效）+ 把 run 状态改为 ``interrupted``。
+        **已知边界**：正在执行的 ``subprocess.run``（阻塞式，最长 180 秒）
+        不会被立即终止——状态先落 ``interrupted``，命令跑完后才真正结束。
+        """
+        with self._control_lock:
+            flag = self._cancel_flags.setdefault(run_id, threading.Event())
+            flag.set()
+        self.run_service.interrupt_run(run_id)
+        return True
+
+    def request_steer(self, run_id: str, instruction: str, mode: str = "append") -> bool:
+        """请求在下一轮并入一条转向指令（不中止本次运行）。
+
+        ``mode``：
+        - ``append``：追加约束（默认）；
+        - ``replace_plan``：丢弃当前计划，回到规划步骤重新出方案。
+
+        队列按入队顺序消费（``seq`` 保序），多次 steer 不会错配轮次。
+        """
+        text = (instruction or "").strip()
+        if not text:
+            return False
+        mode = mode if mode in ("append", "replace_plan") else "append"
+        with self._control_lock:
+            queue = self._steer_queue.setdefault(run_id, [])
+            queue.append({"text": text, "mode": mode, "seq": len(queue) + 1})
+        return True
+
+    def is_cancelled(self, run_id: str) -> bool:
+        with self._control_lock:
+            flag = self._cancel_flags.get(run_id)
+            return bool(flag and flag.is_set())
+
+    def _steer_hook(self, run_id: str):
+        def hook() -> list[dict]:
+            with self._control_lock:
+                pending = self._steer_queue.get(run_id)
+                if not pending:
+                    return []
+                # 取出即清空（一次性消费），按 seq 保序
+                self._steer_queue[run_id] = []
+                return sorted(list(pending), key=lambda x: x.get("seq", 0))
+
+        return hook
+
+    def _cancel_hook(self, run_id: str):
+        def hook() -> bool:
+            return self.is_cancelled(run_id)
+
+        return hook
 
     # ------------------------------------------------------------------ #
     # 流式执行（HTTP SSE）
@@ -65,7 +127,29 @@ class RunExecutor:
         scheduled_for: str | None = None,
         deadline: float | None = None,
         run_id: str | None = None,
+        acquire_slot: bool = True,
     ) -> Iterator[dict]:
+        """执行一次流式运行。
+
+        ``acquire_slot``：是否占用**并发预算**槽位。交互路径（HTTP/前端）默认占用，
+        与调度路径共享同一信号量（S4 / WP-4.4）；``execute_sync`` 自己已持有槽位，
+        传 ``False`` 避免重复占用导致预算被折半。
+        """
+        from app.services.workspace.service import current_run_context
+
+        ws_ctx_active = False  # 在 finally 中复位（早退路径也安全）
+        slot_acquired = False  # 并发预算槽位（finally 中释放）
+        if acquire_slot:
+            if not self._semaphore.acquire(blocking=False):
+                # 并发预算已满 → 明确告知（不静默丢弃）
+                yield {
+                    "type": "busy",
+                    "content": "busy: 并发已达上限，请稍后重试",
+                    "limit": settings.schedule_max_concurrent,
+                }
+                yield {"type": "done"}
+                return
+            slot_acquired = True
         # ---- 团队解析（先拿到 skills 列表）----
         team_meta: dict | None = None
         resolved_skills = skills
@@ -154,6 +238,8 @@ class RunExecutor:
             meta.setdefault("plan_first", plan_first)
             self.run_service.update_meta(run_id, meta)
         self.run_service.mark_running(run_id)
+        # 日志上下文：让落盘日志能按 run_id / session_id 检索（批次 03 / WP-3.2）
+        log_ctx_token = bind_context(run_id=run_id, session_id=session_id)
 
         yield {
             "type": "meta",
@@ -173,7 +259,22 @@ class RunExecutor:
         if history and history[-1]["role"] == "user" and history[-1]["content"] == prompt:
             history = history[:-1]
 
-        # ---- 执行 ----
+        # ---- 执行（设置 run 的工作空间上下文，工具层据此做写前快照） ----
+        run_meta = self.run_service.get_run(run_id)
+        ws_ctx = None
+        if run_meta is not None:
+            meta_obj = run_meta.meta or {}
+            if meta_obj.get("workspace_root"):
+                ws_ctx = {
+                    "run_id": run_id,
+                    "workspace_id": meta_obj.get("workspace_id"),
+                    "workspace_root": meta_obj["workspace_root"],
+                }
+        if ws_ctx:
+            # 生成器跨上下文迭代时 Token.reset 会报 ValueError —— 用 set(None) 复位
+            current_run_context.set(ws_ctx)
+            ws_ctx_active = True
+
         buffer: list[dict] = []
         last_flush = time.monotonic()
         answer_parts: list[str] = []
@@ -204,6 +305,8 @@ class RunExecutor:
                 team=team_meta,
                 plan_first=plan_first,
                 deadline=deadline,
+                steer_hook=self._steer_hook(run_id),
+                cancel_hook=self._cancel_hook(run_id),
             )
             for event in stream:
                 etype = event.get("type")
@@ -213,6 +316,11 @@ class RunExecutor:
                     steps.append({"type": etype, **{k: v for k, v in event.items() if k != "type"}})
                 elif etype == "files":
                     files = event.get("files", [])
+                elif etype == "interrupted":
+                    # S4：取消在工具边界生效 → 终态 interrupted（不是 failed）
+                    final_status = "interrupted"
+                    error = event.get("content") or "运行已被取消"
+                    yield event
                 elif etype == "error":
                     error = event.get("content", "unknown error")
                 elif etype == "approval_required":
@@ -243,6 +351,11 @@ class RunExecutor:
             yield {"type": "done"}
         finally:
             flush()
+            if ws_ctx_active:
+                current_run_context.set(None)
+            if slot_acquired:
+                self._semaphore.release()
+            reset_context(log_ctx_token)
 
         if error:
             final_status = "failed"
@@ -292,7 +405,7 @@ class RunExecutor:
         error: str | None = None
         finished = False
         try:
-            for event in self.execute_stream(prompt, **kwargs):
+            for event in self.execute_stream(prompt, acquire_slot=False, **kwargs):
                 etype = event.get("type")
                 if etype == "meta":
                     run_id = event.get("run_id")
@@ -301,6 +414,10 @@ class RunExecutor:
                     answer_parts.append(event.get("content", ""))
                 elif etype == "files":
                     files = [f["name"] for f in event.get("files", [])]
+                elif etype == "interrupted":
+                    # S4：取消在工具边界生效 → 终态 interrupted（不是 failed）
+                    final_status = "interrupted"
+                    error = event.get("content") or "运行已被取消"
                 elif etype == "error":
                     error = event.get("content")
                 elif etype == "done":

@@ -16,9 +16,9 @@ agent/
 │   ├── .env(.example)       #   密钥配置
 │   └── README.md            #   后端详细文档
 │
-├── frontend/                # 默认前端（唯一实现）
+├── frontend/                # 默认前端（唯一实现）+ 桌面壳
 │   ├── web/vue-element-plus/#   Vue 3 + TS + Vite + Element Plus + Pinia + Router
-│   ├── docs/                #   接口契约 / SSE 协议 / 设计 Token
+│   ├── desktop/             #   桌面壳（Electron 主进程 + 内嵌 FastAPI sidecar）
 │   ├── scripts/             #   build-frontend.mjs（构建 → frontend/dist）/ smoke.mjs
 │   └── dist/                #   【生成物】后端 StaticFiles 托管的静态产物
 │
@@ -37,20 +37,25 @@ agent/
 ```bash
 cd backend
 uv venv .venv --python 3.11
-uv pip install --python .venv/bin/python -r requirements.txt
+# Windows：uv pip install --python .venv/Scripts/python.exe -r requirements.txt
+# Linux/macOS：uv pip install --python .venv/bin/python -r requirements.txt
 cp .env.example .env   # 填入 DASHSCOPE_API_KEY（必需）/ LLM_API_KEY（DeepSeek，必需）
                        # 可选：BOCHA_API_KEY 或 SERPER_API_KEY（深度研究链路的检索引擎）
-.venv/bin/python -m scripts.ingest_data   # RAG 入库（真实 PDF → Milvus）
-.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+# Windows：.venv/Scripts/python.exe -m scripts.ingest_data   # RAG 入库（真实 PDF → Milvus）
+# Windows：.venv/Scripts/python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-### 前端（开发模式，端口 5173）
+> 本机 `8000` 若被占用（如与其它本地服务共存），可改用 `--port 8001` 并让前端 proxy 指向对应端口。
+
+### 前端（开发模式，端口 5185）
 
 ```bash
 cd frontend/web/vue-element-plus
 npm install
-npm run dev            # 打开 http://localhost:5173（/api 自动代理到 8000）
+npm run dev            # 打开 http://localhost:5185（/api 代理到 vite.config.ts 的 target，当前 18040）
 ```
+
+> 前端 dev 代理目标由 `frontend/web/vue-element-plus/vite.config.ts` 的 `server.proxy['/api'].target` 决定（当前 `http://127.0.0.1:18040`）。开发时请让后端跑在该端口，或按需修改 target 指向后端实际端口。
 
 ### 前端（生产模式，单端口 8000）
 
@@ -187,4 +192,4 @@ docker compose exec backend python -m scripts.ingest_data   # 重新入库
 | `doc/knowledge/` | Skill 注册表 / MCP 协议 / 多智能体架构 / 质量评分 / Milvus Lite / Vue3+SSE / Langfuse |
 | `doc/deployment/` | 部署导览与总览 / 故障排查手册 |
 
-另有 `backend/docs/{mcp,rag,research,skills}/` 按能力链细分，以及 `frontend/docs/` 的接口契约与 SSE 协议。
+文档总索引见 [`doc/README.md`](./doc/README.md)（四分区：`analysis` 当前事实 / `design` 目标形态 / `plan` 待办 / `knowledge` 通用原理）。

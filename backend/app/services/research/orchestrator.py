@@ -130,6 +130,7 @@ class Orchestrator:
         worker_factory: Callable,
         max_workers: int = None,
         on_progress: Callable[[str, dict], None] = None,
+        overrides: dict | None = None,
     ):
         """
         初始化 Orchestrator
@@ -138,11 +139,15 @@ class Orchestrator:
             worker_factory: Worker 工厂函数，用于创建 Worker 实例
             max_workers: 最大并行 Worker 数
             on_progress: 进度回调函数 (stage, data)
+            overrides: 本次运行的参数覆盖（``min_iterations`` / ``max_iterations`` /
+                ``quality_threshold`` 等）——**按实例持有**，不再改写全局配置，
+                因此并发任务之间不会互相串扰（S1 / WP-1.6）。
         """
         self.llm = get_llm_client()
         self.worker_factory = worker_factory
         self.max_workers = max_workers or AGENT_CONFIG["max_workers"]
         self.on_progress = on_progress or (lambda stage, data: None)
+        self.overrides: dict = dict(overrides or {})
 
     def _emit_progress(self, stage: str, data: dict = None):
         """发送进度事件"""
@@ -683,11 +688,14 @@ class Orchestrator:
             - 达到质量阈值后，若已满足最少迭代次数则停止
             - 检测到收益递减时提前终止
         """
-        # 获取迭代配置
-        min_iterations = AGENT_CONFIG.get("min_iterations", 2)
-        max_iterations = AGENT_CONFIG.get("max_iterations", 5)
-        quality_threshold = AGENT_CONFIG.get("quality_threshold", 80)
-        enable_diminishing_returns_check = AGENT_CONFIG.get("enable_diminishing_returns_check", True)
+        # 获取迭代配置（实例级覆盖优先，其次全局默认值）
+        min_iterations = self.overrides.get("min_iterations", AGENT_CONFIG.get("min_iterations", 2))
+        max_iterations = self.overrides.get("max_iterations", AGENT_CONFIG.get("max_iterations", 5))
+        quality_threshold = self.overrides.get("quality_threshold", AGENT_CONFIG.get("quality_threshold", 80))
+        enable_diminishing_returns_check = self.overrides.get(
+            "enable_diminishing_returns_check",
+            AGENT_CONFIG.get("enable_diminishing_returns_check", True),
+        )
 
         state = ResearchState(
             original_task=task,

@@ -59,18 +59,127 @@ class ResearchManager:
             logger.info("已恢复 %d 个研究任务记录", len(self.tasks))
         except Exception as exc:  # noqa: BLE001 —— 持久化损坏不应阻塞启动
             logger.warning("研究任务记录恢复失败: %s", exc)
+        # 账本兜底：JSON 丢失/损坏时仍能从 runs 表恢复
+        restored = self._restore_from_db()
+        if restored:
+            logger.info("从账本补回 %d 个研究任务记录", restored)
 
     def _save_tasks(self) -> None:
-        if not self.persist:
-            return
+        if self.persist:
+            try:
+                with self._lock:
+                    payload = {"tasks": list(self.tasks.values()), "updated_at": datetime.now(timezone.utc).isoformat()}
+                    self._tasks_file.write_text(
+                        json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8"
+                    )
+            except OSError as exc:
+                logger.warning("研究任务记录落盘失败: %s", exc)
+        # 写穿到 runs 账本：研究任务与其它运行一样可查、可回放
+        # （与 persist 无关 —— persist 只控制 JSON 文件，账本是独立能力）
+        for task in list(self.tasks.values()):
+            self._sync_task_to_db(task)
+
+    # ------------------------------------------------------------------ #
+    # 账本同步（S1 / WP-1.8）：研究任务也进 runs 表
+    # ------------------------------------------------------------------ #
+    #: 研究任务状态 → runs.status 词表
+    _STATUS_TO_RUN = {
+        "pending": "queued",
+        "running": "running",
+        "completed": "success",
+        "failed": "failed",
+    }
+
+    def _sync_task_to_db(self, task: dict) -> None:
+        """把研究任务写穿到 ``runs`` 表（trigger=research），使其可查、可回放。"""
         try:
-            with self._lock:
-                payload = {"tasks": list(self.tasks.values()), "updated_at": datetime.now(timezone.utc).isoformat()}
-                self._tasks_file.write_text(
-                    json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8"
+            from sqlalchemy import select
+
+            from app.db.base import db_session
+            from app.db.models import RunRow
+
+            task_id = task.get("task_id")
+            if not task_id:
+                return
+            started = task.get("started_at")
+            finished = task.get("completed_at")
+            duration_ms = None
+            if started and finished:
+                try:
+                    duration_ms = int(
+                        (datetime.fromisoformat(finished) - datetime.fromisoformat(started)).total_seconds() * 1000
+                    )
+                except ValueError:
+                    duration_ms = None
+            result = task.get("result") or {}
+            with db_session() as db:
+                row = db.get(RunRow, task_id)
+                if row is None:
+                    row = RunRow(id=task_id)
+                    db.add(row)
+                row.trigger = "research"
+                row.status = self._STATUS_TO_RUN.get(task.get("status", ""), "queued")
+                row.plan_json = json.dumps(
+                    {"original_task": task.get("original_task"), "config": task.get("config")},
+                    ensure_ascii=False,
                 )
-        except OSError as exc:
-            logger.warning("研究任务记录落盘失败: %s", exc)
+                row.meta_json = json.dumps(
+                    {
+                        "progress_summary": task.get("progress_summary") or {},
+                        "progress": (task.get("progress") or [])[-20:],
+                        "quality_score": result.get("quality_score"),
+                    },
+                    ensure_ascii=False,
+                )
+                row.started_at = started
+                row.finished_at = finished
+                row.duration_ms = duration_ms
+                row.error = task.get("error")
+                row.result_summary = (result.get("report") or "")[:2000] or None
+                row.files_json = json.dumps(
+                    [f"data/research/{task_id}/report.md"] if result.get("report") else [],
+                    ensure_ascii=False,
+                )
+        except Exception as exc:  # noqa: BLE001 —— 账本写入失败不应中断研究任务
+            logger.warning("研究任务写入账本失败（task_id=%s）: %s", task.get("task_id"), exc)
+
+    def _restore_from_db(self) -> int:
+        """从 runs 表恢复研究任务（JSON 文件缺失时也能恢复）。"""
+        try:
+            from sqlalchemy import select
+
+            from app.db.base import db_session
+            from app.db.models import RunRow
+
+            restored = 0
+            with db_session() as db:
+                rows = db.scalars(
+                    select(RunRow).where(RunRow.trigger == "research").order_by(RunRow.created_at.desc())
+                ).all()
+                for row in rows:
+                    if row.id in self.tasks:
+                        continue
+                    plan = json.loads(row.plan_json or "{}")
+                    meta = json.loads(row.meta_json or "{}")
+                    status = {"success": "completed", "failed": "failed"}.get(row.status, "pending")
+                    self.tasks[row.id] = {
+                        "task_id": row.id,
+                        "original_task": plan.get("original_task", ""),
+                        "status": status,
+                        "progress": meta.get("progress") or [],
+                        "progress_summary": meta.get("progress_summary") or {},
+                        "config": plan.get("config") or {},
+                        "created_at": row.created_at,
+                        "started_at": row.started_at,
+                        "completed_at": row.finished_at,
+                        "result": {"quality_score": meta.get("quality_score")},
+                        "error": row.error,
+                    }
+                    restored += 1
+            return restored
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("从账本恢复研究任务失败: %s", exc)
+            return 0
 
     # ------------------------------------------------------------------ #
     # 任务 CRUD
@@ -246,4 +355,4 @@ def _search_provider() -> str:
 
 
 # 供 deep_research 兼容：输出目录常量
-OUTPUT_CONFIG["output_dir"] = settings.research_output_abs
+# 输出目录属于运行实例状态（self.output_dir），不再回写全局配置

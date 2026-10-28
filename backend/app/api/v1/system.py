@@ -7,9 +7,63 @@ from app.core.config import settings
 from app.db.base import check_db
 from app.services.research.research_manager import ResearchManager
 from app.services.scheduler_service import SchedulerService
+from app.services.mcp_manager import MCPManager
 from app.services.skill_manager import SkillManager
 
 router = APIRouter(tags=["system"])
+
+
+@router.get("/metrics", summary="运行指标（并发 / 成功率 / 耗时 / 成本 / MCP 连接）")
+def metrics() -> dict:
+    """运行指标快照（S7 / WP-7.8）。"""
+    from datetime import datetime, timedelta, timezone
+
+    from sqlalchemy import func, select
+
+    from app.db.base import db_session
+    from app.db.models import LlmCallRow, RunRow
+    from app.services.chains.mcp.transport import pool_size
+
+    now = datetime.now(timezone.utc)
+    day_ago = (now - timedelta(hours=24)).isoformat()
+
+    with db_session() as db:
+        running = db.scalar(
+            select(func.count()).select_from(RunRow).where(RunRow.status == "running")
+        ) or 0
+        total_today = db.scalar(
+            select(func.count()).select_from(RunRow).where(RunRow.created_at >= day_ago)
+        ) or 0
+        success_today = db.scalar(
+            select(func.count()).select_from(RunRow).where(
+                RunRow.created_at >= day_ago, RunRow.status == "success"
+            )
+        ) or 0
+        durations = [d for d in db.scalars(
+            select(RunRow.duration_ms).where(
+                RunRow.duration_ms.isnot(None), RunRow.created_at >= day_ago
+            )
+        ).all()]
+        llm_today = db.scalar(
+            select(func.count()).select_from(LlmCallRow).where(LlmCallRow.created_at >= day_ago)
+        ) or 0
+        cost_today = db.scalar(
+            select(func.coalesce(func.sum(LlmCallRow.cost), 0)).where(LlmCallRow.created_at >= day_ago)
+        ) or 0.0
+
+    return {
+        "concurrency": {"running": running, "limit": settings.schedule_max_concurrent},
+        "success_rate": round(success_today / total_today, 4) if total_today else None,
+        "runs_today": total_today,
+        "duration_ms": {
+            "samples": len(durations),
+            "p50": sorted(durations)[len(durations) // 2] if durations else None,
+            "p90": sorted(durations)[int(len(durations) * 0.9)] if durations else None,
+        },
+        "llm": {"calls_today": llm_today, "cost_today": round(cost_today, 8)},
+        "mcp_connections": pool_size(),
+        "ts": now.isoformat(),
+    }
 
 
 @router.get("/health", summary="健康检查")
@@ -43,7 +97,7 @@ def health(
         "skills_loaded": len(manager.list_skills()),
         "api_key_configured": settings.has_api_key,
         "output_dir": str(settings.output_dir),
-        "mcp_servers_available": 3,
+        "mcp_servers_available": len(MCPManager.SERVER_REGISTRY),
         "rag_collection": settings.milvus_collection,
         "rag_entities": rag_entities,
         "web_search_available": settings.web_search_available,

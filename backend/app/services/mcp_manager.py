@@ -13,6 +13,7 @@ import asyncio
 import importlib
 import logging
 import sys
+from pathlib import Path
 from typing import Any
 
 from app.core.config import settings
@@ -26,18 +27,21 @@ class MCPManager:
     SERVER_REGISTRY: dict[str, dict[str, str]] = {
         "weather": {
             "module": "app.mcp.servers.weather_server",
+            "script": "weather_server.py",
             "stage": "阶段1",
             "description": "天气 MCP Server（美国 NWS API，无需 Key）",
             "read_only": "true",
         },
         "search": {
             "module": "app.mcp.servers.search_server",
+            "script": "search_server.py",
             "stage": "阶段2",
             "description": "搜索 MCP Server（Serper.dev，需 SERPER_API_KEY）",
             "read_only": "true",
         },
         "xiaohongshu": {
             "module": "app.mcp.servers.xiaohongshu_server",
+            "script": "xiaohongshu_server.py",
             "stage": "阶段3",
             "description": "小红书 MCP Server（Playwright 浏览器自动化）",
             "read_only": "false",
@@ -47,6 +51,18 @@ class MCPManager:
     def __init__(self) -> None:
         self._enabled: set[str] = set()
         self._tools_cache: dict[str, list[dict]] = {}
+
+    # ------------------------------------------------------------------ #
+    # 定位（单源：模块路径与脚本路径都在注册表里）
+    # ------------------------------------------------------------------ #
+    def server_script_path(self, name: str) -> Path:
+        """MCP Server 脚本的绝对路径（取自注册表 ``script`` 字段）。"""
+        self._check_name(name)
+        info = self.SERVER_REGISTRY[name]
+        filename = info.get("script")
+        if not filename:
+            raise ValueError(f"MCP Server 未在注册表声明脚本路径: {name}")
+        return settings.mcp_servers_dir / filename
 
     def is_read_only(self, name: str) -> bool:
         """对话模式（Ask）下是否允许使用该 Server 的工具。"""
@@ -62,7 +78,8 @@ class MCPManager:
                 "name": name,
                 "stage": info["stage"],
                 "description": info["description"],
-                "status": "ready" if name in self._enabled or True else "disabled",
+                # 真实反映启用状态：恒真条件会让"禁用"永远显示为 ready
+                "status": "ready" if name in self._enabled else "disabled",
             }
             for name, info in self.SERVER_REGISTRY.items()
         ]
@@ -146,7 +163,8 @@ class MCPManager:
         from mcp.client.session import ClientSession
         from mcp.client.stdio import StdioServerParameters, stdio_client
 
-        script = settings.mcp_servers_dir / f"{name}_server.py"
+        # 脚本路径由**注册表**给出（定位单源）；不再由 name 推导
+        script = self.server_script_path(name)
         if not script.is_file():
             raise FileNotFoundError(f"MCP Server 脚本不存在: {script}")
 

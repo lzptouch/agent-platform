@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Agent Desktop</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #0f1115;
+        --fg: #e8eaed;
+        --muted: #9aa0a6;
+        --accent: #1f6feb;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: -apple-system, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+      }
+      .wrap {
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 18px;
+      }
+      .logo {
+        width: 88px;
+        height: 88px;
+        border-radius: 22px;
+        background: linear-gradient(135deg, #1f6feb, #7b3fe4);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 40px;
+        font-weight: 700;
+        color: #fff;
+      }
+      .title {
+        font-size: 17px;
+        font-weight: 600;
+      }
+      .status {
+        font-size: 13px;
+        color: var(--muted);
+        min-height: 18px;
+      }
+      .bar {
+        width: 220px;
+        height: 3px;
+        border-radius: 2px;
+        background: rgba(255, 255, 255, 0.12);
+        overflow: hidden;
+      }
+      .bar > i {
+        display: block;
+        width: 40%;
+        height: 100%;
+        border-radius: 2px;
+        background: var(--accent);
+        animation: slide 1.4s ease-in-out infinite;
+      }
+      @keyframes slide {
+        0% {
+          transform: translateX(-100%);
+        }
+        100% {
+          transform: translateX(250%);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="logo">A</div>
+      <div class="title">Agent Desktop</div>
+      <div class="bar"><i></i></div>
+      <div class="status" id="status">正在启动本地服务…</div>
+    </div>
+    <script>
+      // 仅用于启动期视觉反馈；真实状态由主进程通过 agent:backend-state 推送
+      window.__splashStatus = function (text) {
+        document.getElementById("status").textContent = text;
+      };
+    </script>
+  </body>
+</html>

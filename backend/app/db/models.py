@@ -7,7 +7,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import ForeignKey, Index, Integer, Text, UniqueConstraint
+from sqlalchemy import Float, ForeignKey, Index, Integer, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -29,7 +29,8 @@ class SessionRow(Base):
     __tablename__ = "sessions"
 
     id: Mapped[str] = mapped_column(Text, primary_key=True, default=new_id)
-    mode: Mapped[str] = mapped_column(Text, default="work")  # chat | work
+    mode: Mapped[str] = mapped_column(Text, default="work")  # chat | work（plan 归一为 work + plan_first）
+    plan_first: Mapped[int] = mapped_column(Integer, default=0)  # 1 = 先出计划待确认（S1 统一枚举）
     title: Mapped[str] = mapped_column(Text, default="")
     team_id: Mapped[str | None] = mapped_column(
         Text, ForeignKey("teams.id", ondelete="SET NULL"), nullable=True
@@ -177,6 +178,12 @@ class RunRow(Base):
     result_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     files_json: Mapped[str] = mapped_column(Text, default="[]")
+    # 用量（桌面端展示「任务前后消耗区间与明细」）
+    prompt_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    completion_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    llm_calls: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    tool_calls: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    estimated_cost: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[str] = mapped_column(Text, default=utc_now)
 
     events: Mapped[list[RunEventRow]] = relationship(
@@ -219,3 +226,291 @@ class SystemLockRow(Base):
     owner: Mapped[str] = mapped_column(Text, nullable=False)
     expires_at: Mapped[str] = mapped_column(Text, nullable=False)
     renewed_at: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class DesktopPreferenceRow(Base):
+    """桌面端配置（单行，``id`` 恒为 1）。"""
+
+    __tablename__ = "desktop_preferences"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    workspace_dir: Mapped[str] = mapped_column(Text, default="")
+    default_mode: Mapped[str] = mapped_column(Text, default="chat")
+    danger_tools: Mapped[int] = mapped_column(Integer, default=0)  # 派生自 permission_rules
+    notify_on_run: Mapped[int] = mapped_column(Integer, default=1)
+    notify_channel: Mapped[str] = mapped_column(Text, default="system")  # system | toast | off
+    remote_mode: Mapped[int] = mapped_column(Integer, default=0)  # 0=local 1=remote
+    remote_base: Mapped[str] = mapped_column(Text, default="")
+    updated_at: Mapped[str] = mapped_column(Text, default=utc_now)
+
+
+class PermissionRuleRow(Base):
+    """权限规则（S2 扩展：scope ∈ tool | file | command | network | action）。
+
+    - ``pattern``：按 scope 语义 —— file=glob / command=前缀 / network=域名后缀 / tool=命名空间前缀 / action=动作名；
+    - ``priority``：数值小者先匹配（内置规则 <100，用户规则默认 100）；
+    - ``workspace_id``：NULL=全局；S2 期间存工作目录标识（sha1(绝对路径)[:12]），S3 建表后映射；
+    - ``origin``：builtin | user | enterprise；
+    - ``expires_at``：可选过期时间（过期规则视为不存在）。
+    """
+
+    __tablename__ = "permission_rules"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    scope: Mapped[str] = mapped_column(Text, nullable=False)
+    pattern: Mapped[str] = mapped_column(Text, nullable=False)
+    decision: Mapped[str] = mapped_column(Text, nullable=False)  # deny | ask | allow
+    risk: Mapped[str] = mapped_column(Text, default="normal")  # normal | elevated | critical
+    workspace_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    priority: Mapped[int] = mapped_column(Integer, default=100)
+    origin: Mapped[str] = mapped_column(Text, default="user")
+    expires_at: Mapped[str | None] = mapped_column(Text, nullable=True)
+    hit_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_hit_at: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[str] = mapped_column(Text, default=utc_now)
+
+    __table_args__ = (
+        UniqueConstraint("scope", "pattern", "workspace_id", name="uq_permission_rules_triplet"),
+        Index("idx_permission_rules_lookup", "scope", "priority"),
+    )
+
+
+class PermissionDecisionRow(Base):
+    """权限决策日志（每次判定留痕：谁、什么、被哪条规则、为什么）。"""
+
+    __tablename__ = "permission_decisions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    session_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tool_name: Mapped[str] = mapped_column(Text, nullable=False)
+    request_json: Mapped[str] = mapped_column(Text, nullable=False)
+    action: Mapped[str] = mapped_column(Text, nullable=False)  # allow | ask | deny
+    matched_rule_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    decided_by: Mapped[str | None] = mapped_column(Text, nullable=True)  # user | policy | timeout
+    status: Mapped[str] = mapped_column(Text, default="resolved")  # pending | resolved
+    latency_ms: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[str] = mapped_column(Text, default=utc_now)
+    resolved_at: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    __table_args__ = (
+        Index("idx_permission_decisions_run", "run_id"),
+        Index("idx_permission_decisions_status", "status"),
+    )
+
+class WorkspaceRow(Base):
+    """工作空间实体（一任务一空间，运行期锁定）。"""
+
+    __tablename__ = "workspaces"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True, default=new_id)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    root_path: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, default="active")  # active | archived
+    manifest_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[str] = mapped_column(Text, default=utc_now)
+    updated_at: Mapped[str] = mapped_column(Text, default=utc_now)
+
+    __table_args__ = (Index("idx_workspaces_status", "status"),)
+
+
+class RagDocumentRow(Base):
+    """RAG 入库台账（批次 03 / WP-3.1）。
+
+    幂等键 ``doc_id`` = sha256(文件绝对路径 | 内容哈希)：
+    同一文件内容不变 → 重复入库直接跳过（chunk 不累积）。
+    """
+
+    __tablename__ = "rag_documents"
+
+    doc_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    source_path: Mapped[str] = mapped_column(Text, nullable=False)
+    content_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    chunk_count: Mapped[int] = mapped_column(Integer, default=0)
+    collection: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[str] = mapped_column(Text, default=utc_now)
+    updated_at: Mapped[str] = mapped_column(Text, default=utc_now)
+
+    __table_args__ = (Index("idx_rag_documents_source", "source_path"),)
+
+
+class ChangeRow(Base):
+    """逐文件变更（前后哈希 + 快照引用 + 操作类型），支撑 diff 与回退。"""
+
+    __tablename__ = "changes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(Text, nullable=False)
+    workspace_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    path: Mapped[str] = mapped_column(Text, nullable=False)
+    op: Mapped[str] = mapped_column(Text, nullable=False)  # create | modify | delete | revert
+    before_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    after_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    snapshot_ref: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tool: Mapped[str] = mapped_column(Text, nullable=False)
+    size_before: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    size_after: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[str] = mapped_column(Text, default=utc_now)
+
+    __table_args__ = (
+        Index("idx_changes_run", "run_id"),
+        Index("idx_changes_workspace", "workspace_id"),
+    )
+
+
+class ArtifactRow(Base):
+    """产物登记（交付物与中间文件分离）。"""
+
+    __tablename__ = "artifacts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[str] = mapped_column(Text, nullable=False)
+    workspace_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    path: Mapped[str] = mapped_column(Text, nullable=False)
+    title: Mapped[str | None] = mapped_column(Text, nullable=True)
+    mime: Mapped[str | None] = mapped_column(Text, nullable=True)
+    kind: Mapped[str] = mapped_column(Text, default="other")
+    size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    previewable: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[str] = mapped_column(Text, default=utc_now)
+
+    __table_args__ = (
+        Index("idx_artifacts_run", "run_id"),
+        Index("idx_artifacts_workspace", "workspace_id"),
+    )
+
+class LlmCallRow(Base):
+    """LLM 调用计量（每次调用一行；含**单价快照**，历史金额不随改价而变）。"""
+
+    __tablename__ = "llm_calls"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    session_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    model: Mapped[str] = mapped_column(Text, nullable=False)
+    provider: Mapped[str] = mapped_column(Text, default="dashscope")
+    role: Mapped[str] = mapped_column(Text, default="agent")  # agent | compact | contextSummary | memorySelector
+    prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cached_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    latency_ms: Mapped[int] = mapped_column(Integer, default=0)
+    price_snapshot: Mapped[str] = mapped_column(Text, default="{}")
+    cost: Mapped[float] = mapped_column(Float, default=0.0)
+    created_at: Mapped[str] = mapped_column(Text, default=utc_now)
+
+    __table_args__ = (
+        Index("idx_llm_calls_run", "run_id"),
+        Index("idx_llm_calls_session", "session_id"),
+    )
+
+
+class MemoryIndexRow(Base):
+    """记忆索引（增量刷新；支持按作用域预筛，不扫描全量文件）。"""
+
+    __tablename__ = "memory_index"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    path: Mapped[str] = mapped_column(Text, nullable=False)
+    scope: Mapped[str] = mapped_column(Text, nullable=False)  # user | workspace | project
+    summary: Mapped[str] = mapped_column(Text, default="")
+    tags: Mapped[str] = mapped_column(Text, default="[]")
+    size: Mapped[int] = mapped_column(Integer, default=0)
+    last_used_at: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[str] = mapped_column(Text, default=utc_now)
+    updated_at: Mapped[str] = mapped_column(Text, default=utc_now)
+
+    __table_args__ = (Index("idx_memory_index_scope", "scope"),)
+
+class RoleRow(Base):
+    """角色定义（S6）：身份 / 边界 / 流程 / 输出风格 / 工具集 / 模型档。
+
+    - 名称唯一且**创建后不可改名**（对齐竞品约束）；
+    - ``tools_json`` 是声明的**上界**，实际调用仍要过权限引擎（最小权限）。
+    """
+
+    __tablename__ = "roles"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    title: Mapped[str] = mapped_column(Text, default="")
+    identity: Mapped[str] = mapped_column(Text, default="")
+    expertise: Mapped[str] = mapped_column(Text, default="[]")
+    boundaries: Mapped[str] = mapped_column(Text, default="[]")
+    workflow: Mapped[str] = mapped_column(Text, default="[]")
+    output_style: Mapped[str] = mapped_column(Text, default="")
+    tools_json: Mapped[str] = mapped_column(Text, default="[]")
+    skills_json: Mapped[str] = mapped_column(Text, default="[]")
+    model_tier: Mapped[str] = mapped_column(Text, default="standard")  # light | standard | strong
+    builtin: Mapped[int] = mapped_column(Integer, default=0)
+    enabled: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[str] = mapped_column(Text, default=utc_now)
+    updated_at: Mapped[str] = mapped_column(Text, default=utc_now)
+
+    __table_args__ = (UniqueConstraint("name", name="uq_roles_name"), Index("idx_roles_enabled", "enabled"))
+
+
+class PluginRow(Base):
+    """插件包（S6）：版本、扫描结果、安装状态。"""
+
+    __tablename__ = "plugins"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    version: Mapped[str] = mapped_column(Text, nullable=False)
+    source: Mapped[str] = mapped_column(Text, default="local")
+    status: Mapped[str] = mapped_column(Text, default="installed")  # installed | rolled_back
+    scan_result: Mapped[str] = mapped_column(Text, default="{}")
+    manifest_json: Mapped[str] = mapped_column(Text, default="{}")
+    installed_at: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[str] = mapped_column(Text, default=utc_now)
+    updated_at: Mapped[str] = mapped_column(Text, default=utc_now)
+
+    __table_args__ = (
+        UniqueConstraint("name", "version", name="uq_plugins_name_version"),
+        Index("idx_plugins_name", "name"),
+    )
+
+
+class BoardItemRow(Base):
+    """黑板任务项（S6）：状态机 + 依赖图。"""
+
+    __tablename__ = "board_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    board_id: Mapped[str] = mapped_column(Text, nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    detail: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(Text, default="pending")
+    # pending | ready | running | done | blocked | failed
+    assignee: Mapped[str | None] = mapped_column(Text, nullable=True)
+    deps_json: Mapped[str] = mapped_column(Text, default="[]")
+    result_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[str] = mapped_column(Text, default=utc_now)
+    updated_at: Mapped[str] = mapped_column(Text, default=utc_now)
+
+    __table_args__ = (
+        Index("idx_board_items_board", "board_id"),
+        Index("idx_board_items_status", "status"),
+    )
+
+
+class AgentMessageRow(Base):
+    """Agent 间消息（S6）：``to_role`` 有值=定向消息；``to_role`` 为空=通知（广播）。"""
+
+    __tablename__ = "agent_messages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    board_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    from_role: Mapped[str | None] = mapped_column(Text, nullable=True)
+    to_role: Mapped[str | None] = mapped_column(Text, nullable=True)
+    kind: Mapped[str] = mapped_column(Text, default="message")  # message | notification
+    content: Mapped[str] = mapped_column(Text, default="")
+    refs_json: Mapped[str] = mapped_column(Text, default="[]")
+    created_at: Mapped[str] = mapped_column(Text, default=utc_now)
+
+    __table_args__ = (
+        Index("idx_agent_messages_board", "board_id"),
+        Index("idx_agent_messages_to_role", "to_role"),
+    )
+

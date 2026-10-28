@@ -17,6 +17,11 @@ class IngestResponse(BaseModel):
     chunks: int
     entities: int
     collection: str
+    # 批次 03：幂等入库统计（新增 / 跳过 / 清理旧版本 / 源文件数）
+    ingested: int = 0
+    skipped: int = 0
+    removed: int = 0
+    documents: int = 0
 
 
 class RagStatsResponse(BaseModel):

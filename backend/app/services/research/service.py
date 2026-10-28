@@ -40,16 +40,15 @@ def run_research(
     返回:
         ResearchState: 含 ``final_report`` / ``quality_score`` / ``status`` 等
     """
-    overrides = {k: v for k, v in (config_overrides or {}).items() if k in OVERRIDABLE_KEYS and v is not None}
-    original = {k: AGENT_CONFIG[k] for k in overrides}
-    AGENT_CONFIG.update(overrides)
-
-    try:
-        orchestrator = Orchestrator(
-            worker_factory=search_worker_factory,
-            max_workers=max_workers or AGENT_CONFIG["max_workers"],
-            on_progress=on_progress,
-        )
-        return orchestrator.run(task)
-    finally:
-        AGENT_CONFIG.update(original)
+    overrides = {
+        k: v for k, v in (config_overrides or {}).items() if k in OVERRIDABLE_KEYS and v is not None
+    }
+    # 覆盖按实例传递，不再「改全局 → finally 还原」：
+    # 后者不是并发安全的（两个研究任务会互相覆盖同一份全局 dict）。
+    orchestrator = Orchestrator(
+        worker_factory=search_worker_factory,
+        max_workers=max_workers or AGENT_CONFIG["max_workers"],
+        on_progress=on_progress,
+        overrides=overrides,
+    )
+    return orchestrator.run(task)

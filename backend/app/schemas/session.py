@@ -3,7 +3,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-AgentMode = Literal["chat", "work"]
+# 统一取值集合（S1）：对外 chat | plan | work；落库 chat | work + plan_first
+AgentMode = Literal["chat", "plan", "work"]
 
 
 class SessionCreate(BaseModel):
@@ -38,6 +39,7 @@ class MessageOut(BaseModel):
 class SessionOut(BaseModel):
     id: str
     mode: AgentMode
+    plan_first: bool = False
     title: str
     team_id: str | None = None
     skills: list[str] | None = None

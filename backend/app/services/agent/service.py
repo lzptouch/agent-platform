@@ -1,4 +1,9 @@
-"""Agent 编排：plan -> action -> (reflection -> action) -> answer，源自 notebook 的 agent/agent_reflection。"""
+"""Agent 编排：plan -> action -> (reflection -> action) -> answer，源自 notebook 的 agent/agent_reflection。
+
+⚠️ **遗留链路（legacy）**：S1 起主循环是 ``app.services.agent_service`` +
+``app.services.run_executor``（写 ``runs`` / ``run_events`` 账本）。本模块仅服务于
+``POST /api/v1/agent/chat``，不落账本，不得在此新增能力。
+"""
 import logging
 
 from app.services.agent.answer import final_answer

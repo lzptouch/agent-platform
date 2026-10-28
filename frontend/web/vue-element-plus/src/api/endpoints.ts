@@ -89,6 +89,49 @@ export const Endpoints = {
   skillImport:   `${API_BASE}/skills/import`,
   skillToggle:   (name: string) => `${API_BASE}/skills/${encodeURIComponent(name)}/toggle`,
   skillExport:   (name: string) => `${API_BASE}/skills/${encodeURIComponent(name)}/export`,
+
+  // 权限引擎（S2，形态无关）
+  permissionRules:    `${API_BASE}/permissions/rules`,
+  permissionDecisions:`${API_BASE}/permissions/decisions`,
+  permissionSandbox:  `${API_BASE}/permissions/sandbox`,
+
+  // 工作空间与产物（S3）
+  workspaces:       `${API_BASE}/workspaces`,
+  workspace:        (id: string) => `${API_BASE}/workspaces/${encodeURIComponent(id)}`,
+  workspaceSwitch:  (id: string) => `${API_BASE}/workspaces/${encodeURIComponent(id)}/switch`,
+  workspaceArchive: (id: string) => `${API_BASE}/workspaces/${encodeURIComponent(id)}/archive`,
+  runChanges:       (runId: string) => `${API_BASE}/runs/${encodeURIComponent(runId)}/changes`,
+  runCost:          (runId: string) => `${API_BASE}/runs/${encodeURIComponent(runId)}/cost`,
+  costEstimate:     `${API_BASE}/cost/estimate`,
+  sessionContext:   (id: string) => `${API_BASE}/sessions/${encodeURIComponent(id)}/context`,
+  memories:         `${API_BASE}/memories`,
+
+  // 扩展三层与多 Agent（S6）
+  roles:            `${API_BASE}/roles`,
+  role:             (id: number) => `${API_BASE}/roles/${id}`,
+  plugins:          `${API_BASE}/plugins`,
+  pluginScan:       `${API_BASE}/plugins/scan`,
+  pluginInstall:    `${API_BASE}/plugins/install`,
+  pluginRollback:   `${API_BASE}/plugins/rollback`,
+  boardItems:       (boardId: string) => `${API_BASE}/boards/${encodeURIComponent(boardId)}/items`,
+  boardItem:        (boardId: string, itemId: number) => `${API_BASE}/boards/${encodeURIComponent(boardId)}/items/${itemId}`,
+  boardMessages:    (boardId: string) => `${API_BASE}/boards/${encodeURIComponent(boardId)}/messages`,
+  runArtifacts:     (runId: string) => `${API_BASE}/runs/${encodeURIComponent(runId)}/artifacts`,
+  changeDiff:       (id: number) => `${API_BASE}/changes/${id}/diff`,
+  changeRevert:     (id: number) => `${API_BASE}/changes/${id}/revert`,
   skillUpdate:   (name: string) => `${API_BASE}/skills/${encodeURIComponent(name)}`,
   skillDelete:   (name: string) => `${API_BASE}/skills/${encodeURIComponent(name)}`,
+
+  // Desktop（桌面端）
+  desktopStatus:      `${API_BASE}/desktop/status`,
+  desktopPreferences: `${API_BASE}/desktop/preferences`,
+  desktopWorkspace:   `${API_BASE}/desktop/workspace`,
+  desktopEvents:      `${API_BASE}/desktop/events`,
+  desktopComponents:  `${API_BASE}/desktop/components`,
+  desktopPermissions: `${API_BASE}/desktop/permissions`,
+  desktopPermissionDecision: `${API_BASE}/desktop/permissions/decision`,
+  desktopResumeScan:  `${API_BASE}/desktop/scheduler/resume-scan`,
+  runsList:           `${API_BASE}/runs`,
+  runCancel:          (id: string) => `${API_BASE}/runs/${id}/cancel`,
+  runSteer:           (id: string) => `${API_BASE}/runs/${id}/steer`,
 } as const

@@ -18,7 +18,9 @@ class RunRequest(BaseModel):
 
     prompt: str = Field(min_length=1, description="用户请求内容")
     model: str = Field(default=settings.default_model, description="模型 ID")
-    mode: Literal["chat", "work"] = Field(default="work", description="对话 / 工作模式")
+    mode: Literal["chat", "plan", "work"] = Field(
+        default="work", description="对话 / 计划 / 工作模式（plan = work + plan_first）"
+    )
     session_id: str | None = Field(default=None, description="会话 ID；提供则加载历史并落盘消息")
     team_id: str | None = Field(default=None, description="Skill 团队 ID（与 skills 互斥）")
     plan_first: bool = Field(default=False, description="工作模式：先出计划，待确认后执行")
@@ -34,6 +36,10 @@ class RunRequest(BaseModel):
 
     @model_validator(mode="after")
     def _cross_check(self):
+        # 归一：plan 是 work + plan_first 的输入别名，内部一律按 work 执行
+        if self.mode == "plan":
+            self.plan_first = True
+            self.mode = "work"
         if self.mode == "chat" and self.plan_first:
             raise ValueError("对话模式不支持 plan_first")
         if self.team_id and self.skills:

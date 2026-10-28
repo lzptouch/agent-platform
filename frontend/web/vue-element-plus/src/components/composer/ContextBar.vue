@@ -9,18 +9,22 @@
 
     <span class="divider" />
 
-    <button class="item" :class="{ on: permissive }" title="切换默认权限（只读 / 可写）" @click="emit('toggle-permission')">
-      <el-icon><Lock v-if="!permissive" /><Unlock v-else /></el-icon>
+    <button class="item" :class="levelClass" title="默认权限（三态：只读 / 询问 / 可写）" @click="emit('toggle-permission')">
+      <el-icon><Lock v-if="level === 'readonly'" /><Warning v-else-if="level === 'ask'" /><Unlock v-else /></el-icon>
       <span class="label">默认权限</span>
-      <span class="value">{{ permissive ? '可写' : '只读' }}</span>
+      <span class="value">{{ levelLabel }}</span>
     </button>
   </div>
 </template>
 
 <script setup lang="ts">
-import { Folder, ArrowDown, Lock, Unlock } from '@element-plus/icons-vue'
+import { computed } from 'vue'
+import { Folder, ArrowDown, Lock, Unlock, Warning } from '@element-plus/icons-vue'
 
-defineProps<{ workspace?: string; permissive?: boolean }>()
+const props = defineProps<{ workspace?: string; permissive?: boolean; level?: 'readonly' | 'ask' | 'allow' }>()
+const level = computed(() => props.level ?? (props.permissive ? 'allow' : 'readonly'))
+const levelLabel = computed(() => ({ readonly: '只读', ask: '询问', allow: '可写' }[level.value]))
+const levelClass = computed(() => ({ on: level.value === 'allow', ask: level.value === 'ask' }))
 const emit = defineEmits<{
   (e: 'workspace'): void
   (e: 'toggle-permission'): void
@@ -36,6 +40,7 @@ const emit = defineEmits<{
 }
 .item:hover { background: var(--bg-hover); color: var(--text); }
 .item.on { color: var(--accent); }
+.item.ask { color: var(--el-color-warning); }
 .label { color: var(--text-faint); }
 .value { color: var(--text); }
 .divider { width: 1px; height: 12px; background: var(--border); }

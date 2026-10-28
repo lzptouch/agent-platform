@@ -25,7 +25,7 @@ def create_session(
 
 @router.get("", response_model=Page[SessionOut], summary="会话列表（按模式过滤 + 分页）")
 def list_sessions(
-    mode: str | None = Query(default=None, pattern="^(chat|work)$"),
+    mode: str | None = Query(default=None, pattern="^(chat|plan|work)$"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     include_archived: bool = False,

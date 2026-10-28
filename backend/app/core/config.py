@@ -4,6 +4,7 @@
 - `.env` 位于项目根目录，环境变量自动映射到小写字段名
 """
 from functools import lru_cache
+import os
 from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -11,6 +12,14 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # app/core/config.py -> app/core -> app -> 项目根目录
 APP_DIR: Path = Path(__file__).resolve().parent.parent
 PROJECT_ROOT: Path = APP_DIR.parent
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    """读取布尔环境变量（1/true/yes/on 视为真）。"""
+    raw = os.environ.get(name, "").strip().lower()
+    if not raw:
+        return default
+    return raw in {"1", "true", "yes", "on"}
 
 
 class Settings(BaseSettings):
@@ -25,7 +34,7 @@ class Settings(BaseSettings):
     app_name: str = "agent"
     app_version: str = "1.1.0"
     debug: bool = False
-    host: str = "0.0.0.0"
+    host: str = "127.0.0.1"
     port: int = 8000
 
     # ---------- 主 LLM（DashScope OpenAI 兼容，Agent 循环）----------
@@ -93,6 +102,50 @@ class Settings(BaseSettings):
     schedule_lease_renew: int = 20
     schedule_daily_run_limit: int = 100
     schedule_task_soft_limit: int = 200
+    schedule_stale_sweep_minutes: int = 5      # 周期巡检间隔（0 = 关闭）
+    schedule_stale_sweep_grace: int = 900      # 超期判定宽限（秒），需 > schedule_run_timeout
+
+    # ---------- 上下文经济性（S5） ----------
+    context_lazy_tool_loading: bool = True   # 工具延迟装载（首轮只给目录+核心 Schema）
+    context_budget_ratio: float = 0.85        # 上下文占用上限（占模型窗口比例）
+    context_compact_threshold: float = 0.70   # 触发轻量压缩
+    context_summary_threshold: float = 0.85   # 触发强摘要
+    context_keep_recent_turns: int = 3        # 压缩后保留的最近轮数（原文）
+    context_memory_enabled: bool = True       # 记忆预筛与注入
+    context_memory_max: int = 5               # 单次注入记忆条数上限
+    pricing_json: str = ""                    # 单价表覆盖（JSON）
+
+    # ---------- 权限引擎（S2） ----------
+    permission_approval_timeout: int = 120  # ask 审批等待上限（秒），超时按 deny
+    permission_audit_enabled: bool = True   # JSONL 审计开关
+
+    # ---------- 日志（批次 03 / WP-3.2）----------
+    log_to_file: bool = True               # 是否落盘（关闭即退回纯 stderr）
+    log_file_name: str = "app.log"
+    log_file_max_bytes: int = 10 * 1024 * 1024   # 单文件上限（10MB）
+    log_file_backup_count: int = 5               # 保留的历史文件数
+    log_file_level: str = "DEBUG"                # 落盘级别阈值
+    log_debug_sample_rate: float = 0.2           # DEBUG 级采样率（错误及以上全量）
+
+    # ---------- 执行边界（批次 01 / WP-1） ----------
+    # 回滚开关：置 false 即整体退回「只有命令黑名单 + 超时」的旧行为
+    exec_resource_limits: bool = True
+    exec_cpu_seconds: int = 60              # 子进程 CPU 时间上限（POSIX 生效）
+    exec_memory_bytes: int = 1024 * 1024 * 1024  # 子进程地址空间上限（POSIX 生效）
+    exec_open_files: int = 256              # 文件句柄上限（POSIX 生效）
+    exec_file_size_bytes: int = 64 * 1024 * 1024  # 子进程单文件写入上限（POSIX 生效）
+    exec_max_output_bytes: int = 64 * 1024  # stdout / stderr 各自上限，超出即杀
+    exec_workspace_escape_check: bool = True  # 启动前拦截逃出工作目录的路径
+    exec_network_enabled: bool = False      # 网络出口开关（默认关）
+
+    # ---------- 上传限制（批次 01 / WP-2） ----------
+    upload_max_file_bytes: int = 50 * 1024 * 1024    # 单文件上限（50 MB）
+    upload_max_request_bytes: int = 100 * 1024 * 1024  # 单请求总量上限（100 MB）
+    upload_allowed_extensions: str = ""              # 逗号分隔；留空 = 用内置白名单
+
+    # ---------- CORS ----------
+    # 允许源（逗号分隔）。桌面模式由壳注入空串 = 不允许任何跨源。
+    cors_origins: str = ""
 
     # ---------- 路径辅助（借鉴 WR resolve 模式）----------
     def resolve(self, p: str | Path) -> str:
@@ -112,36 +165,127 @@ class Settings(BaseSettings):
         """SQLite 必须用绝对路径（相对路径会随 CWD 漂移）。"""
         if self.database_url.strip():
             return self.database_url
-        return f"sqlite:///{(self.data_dir / 'app.db').as_posix()}"
+        return f"sqlite:///{(self.user_data_dir / 'app.db').as_posix()}"
 
     @property
     def custom_skills_dir(self) -> Path:
-        return self.data_dir / "skills_custom"
+        return self.user_data_dir / "skills_custom"
 
     @property
     def output_dir(self) -> Path:
-        return self.data_dir / "outputs"
+        return self.user_data_dir / "outputs"
 
     @property
     def upload_dir(self) -> Path:
-        return self.data_dir / "uploads"
+        return self.user_data_dir / "uploads"
 
     @property
     def browser_data_dir(self) -> Path:
-        return self.data_dir / "browser_data"
+        return self.user_data_dir / "browser_data"
 
     @property
     def pdf_dir(self) -> Path:
-        return self.data_dir / "pdf"
+        return self.user_data_dir / "pdf"
 
     @property
     def logs_dir(self) -> Path:
-        return self.data_dir / "logs"
+        return self.user_data_dir / "logs"
 
     @property
     def research_output_abs(self) -> str:
         """``data/research`` 的绝对路径。"""
         return self.resolve(self.research_output_dir)
+
+    # ---------- 桌面端路径 ----------
+    @property
+    def user_data_dir(self) -> Path:
+        """可写数据根。
+
+        开发态（未注入 ``AGENT_DATA_DIR``）等于 ``data_dir``，行为与改造前完全一致；
+        桌面态由壳注入 UserData 路径，使程序目录保持只读。
+        """
+        override = os.environ.get("AGENT_DATA_DIR", "").strip()
+        if override:
+            return Path(override)
+        return self.data_dir
+
+    @property
+    def runtime_root(self) -> Path:
+        """程序资源根（只读）。桌面态指向打包后的 runtime/agent。"""
+        override = os.environ.get("AGENT_RUNTIME_ROOT", "").strip()
+        if override:
+            return Path(override)
+        return PROJECT_ROOT
+
+    @property
+    def builtin_skills_dir(self) -> Path:
+        """内置 Skill 目录（只读）。"""
+        override = os.environ.get("AGENT_SKILLS_DIR", "").strip()
+        if override:
+            return Path(override)
+        return self.skills_dir
+
+    @property
+    def frontend_dist_dir(self) -> Path:
+        """前端构建产物目录（桌面态由壳通过 AGENT_FRONTEND_DIST 注入）。"""
+        override = os.environ.get("AGENT_FRONTEND_DIST", "").strip()
+        if override:
+            return Path(override)
+        return PROJECT_ROOT.parent / "frontend" / "dist"
+
+    @property
+    def default_workspace_dir(self) -> Path:
+        """默认工作区（Agent 执行 cwd / 产物目录）。"""
+        override = os.environ.get("AGENT_WORKSPACE_DIR", "").strip()
+        if override:
+            return Path(override)
+        return self.user_data_dir / "workspace"
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        """CORS 允许源列表。
+
+        - **桌面态**：不需要跨源（窗口与页面同源），固定为空；
+        - **Web 形态**：必须显式配置 ``CORS_ORIGINS``。未配置时返回空列表
+          （**不再回落到 ``["*"]``**）——S1 暴露面收紧，未显式授权的跨源请求一律拒绝。
+        """
+        if self.desktop_mode:
+            return []
+        raw = (self.cors_origins or "").strip()
+        if not raw:
+            return []
+        return [o.strip() for o in raw.split(",") if o.strip()]
+
+    @property
+    def desktop_mode(self) -> bool:
+        """桌面模式。开启后启用会话令牌校验、Host 白名单与 CORS 收窄。"""
+        return _env_flag("AGENT_DESKTOP")
+
+    @property
+    def desktop_token(self) -> str:
+        """常驻会话令牌（只经 X-Agent-Desktop-Token header，永不进 URL）。"""
+        return os.environ.get("AGENT_DESKTOP_TOKEN", "").strip()
+
+    @property
+    def desktop_bootstrap_nonce(self) -> str:
+        """一次性引导 nonce（仅用于 /__desktop/bootstrap?t=）。"""
+        return os.environ.get("AGENT_DESKTOP_BOOTSTRAP_NONCE", "").strip()
+
+    @property
+    def desktop_protocol(self) -> int:
+        """壳与后端的握手协议版本。"""
+        try:
+            return int(os.environ.get("AGENT_DESKTOP_PROTOCOL", "1"))
+        except ValueError:
+            return 1
+
+    @property
+    def desktop_missed_window_hours(self) -> int:
+        """补跑窗口（小时）。超过该时长的错过任务只提示不补跑。"""
+        try:
+            return int(os.environ.get("AGENT_DESKTOP_MISSED_WINDOW_HOURS", "6"))
+        except ValueError:
+            return 6
 
     # ---------- 能力检查 ----------
     @property
@@ -167,14 +311,15 @@ class Settings(BaseSettings):
 
     def ensure_dirs(self) -> None:
         for path in (
-            self.skills_dir,
-            self.data_dir,
+            self.builtin_skills_dir,
+            self.user_data_dir,
             self.custom_skills_dir,
             self.output_dir,
             self.upload_dir,
             self.browser_data_dir,
             self.pdf_dir,
             self.logs_dir,
+            self.default_workspace_dir,
             Path(self.research_output_abs),
         ):
             path.mkdir(parents=True, exist_ok=True)

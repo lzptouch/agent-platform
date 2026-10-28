@@ -37,9 +37,15 @@
       </div>
 
       <!-- 状态行 -->
-      <div v-if="message.error" class="status status-error">⚠ {{ message.error }}</div>
-      <div v-else-if="message.running" class="status status-running"><el-icon class="is-loading"><Loading /></el-icon> 正在生成…</div>
-      <div v-else-if="message.done" class="status status-done">✓ 已完成</div>
+      <div v-if="message.error" class="status status-error">
+        ⚠ {{ message.error }}<span v-if="elapsedLabel" class="elapsed">（{{ elapsedLabel }}）</span>
+      </div>
+      <div v-else-if="message.running" class="status status-running">
+        <el-icon class="is-loading"><Loading /></el-icon> 正在生成…<span v-if="elapsedLabel" class="elapsed"> {{ elapsedLabel }}</span>
+      </div>
+      <div v-else-if="message.done" class="status status-done">
+        ✓ 已完成<span v-if="elapsedLabel" class="elapsed">（{{ elapsedLabel }}）</span>
+      </div>
     </div>
   </div>
 </template>
@@ -72,9 +78,14 @@ interface ChatMessageModel {
   error?: string
   running?: boolean
   done?: boolean
+  /** S8：耗时三态（毫秒时间戳） */
+  startedAt?: number
+  finishedAt?: number
 }
 
-defineProps<{
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+
+const props = defineProps<{
   message: ChatMessageModel
   skillsList?: Array<{ name: string }>
 }>()
@@ -82,6 +93,35 @@ defineProps<{
 function fileUrl(name: string): string {
   return `/api/v1/files/${encodeURIComponent(name)}`
 }
+// ---- S8：耗时三态（进行中每秒刷新；完成/失败定格） ----
+const now = ref(Date.now())
+let ticker: ReturnType<typeof setInterval> | null = null
+
+const elapsedMs = computed(() => {
+  const started = props.message.startedAt
+  if (!started) return 0
+  const end = props.message.finishedAt ?? (props.message.running ? now.value : undefined)
+  if (!end) return 0
+  return Math.max(0, end - started)
+})
+
+const elapsedLabel = computed(() => {
+  const ms = elapsedMs.value
+  if (!ms) return ''
+  if (ms < 1000) return `${ms}ms`
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`
+  const m = Math.floor(ms / 60_000)
+  const s = Math.round((ms % 60_000) / 1000)
+  return `${m}m${s}s`
+})
+
+onMounted(() => {
+  if (props.message.running) {
+    ticker = setInterval(() => { now.value = Date.now() }, 1000)
+  }
+})
+onBeforeUnmount(() => { if (ticker) clearInterval(ticker) })
+
 function formatSize(n: number): string {
   if (n < 1024) return `${n} B`
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
@@ -108,4 +148,5 @@ function formatSize(n: number): string {
 .status-error { color: var(--red); }
 .status-running { color: var(--text-dim); display: inline-flex; align-items: center; gap: 6px; }
 .status-done { color: var(--green); }
+.elapsed { color: var(--text-faint); font-size: 11px; margin-left: 4px; }
 </style>

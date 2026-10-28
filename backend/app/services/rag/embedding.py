@@ -23,7 +23,12 @@ def get_embedding_client() -> OpenAI:
             raise RuntimeError(
                 "未配置 DASHSCOPE_API_KEY / LLM_API_KEY，无法调用 Embedding API"
             )
-        _client = OpenAI(api_key=api_key, base_url=settings.dashscope_base_url)
+        # 客户端统一由 app/core/llm.py 工厂提供（dashscope）
+        from app.core.llm import get_llm_client
+
+        _client = get_llm_client(
+            "dashscope", api_key=api_key, base_url=settings.dashscope_base_url
+        )
     return _client
 
 

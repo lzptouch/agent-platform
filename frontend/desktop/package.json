@@ -1,0 +1,31 @@
+{
+  "name": "agent-desktop",
+  "productName": "Agent Desktop",
+  "version": "1.1.0",
+  "private": true,
+  "description": "Agent Desktop —— 桌面端壳（Electron 主进程 + 内嵌 FastAPI sidecar）",
+  "main": "dist-main/main/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.main.json && tsc -p tsconfig.preload.json",
+    "watch": "tsc -p tsconfig.main.json -w",
+    "start": "npm run build && electron .",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder --publish never",
+    "dist:win": "npm run build && electron-builder --win --x64 --publish never",
+    "dist:mac": "npm run build && electron-builder --mac --x64 --arm64 --publish never",
+    "dist:linux": "npm run build && electron-builder --linux --x64 --publish never",
+    "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.preload.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.9"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.0"
+  }
+}

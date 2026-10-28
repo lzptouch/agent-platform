@@ -45,6 +45,33 @@ def assert_profile_consistency(tools: list[dict], profile: ToolProfile) -> None:
 # ----------------------------------------------------------------------
 BUILTIN_TOOLS: list[dict[str, Any]] = [
     {
+        "name": "tool_search",
+        "description": "按关键词检索可用工具目录，返回候选工具名与一句话描述（不返回完整参数）。",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "检索关键词"},
+                "top_k": {"type": "integer", "description": "候选数量（默认 5）"},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "tool_load",
+        "description": "装载指定工具的完整调用 Schema（返回参数说明，之后即可直接调用该工具）。",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "names": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "要装载的工具名列表",
+                },
+            },
+            "required": ["names"],
+        },
+    },
+    {
         "name": "read_file",
         "description": "读取本地文件的内容。用于读取 Skill 指令文件（SKILL.md）或其他参考文件。",
         "input_schema": {
@@ -200,8 +227,16 @@ class ToolRegistry:
         tool_name: str,
         tool_input: dict,
         executor: LocalCodeExecutor,
+        *,
+        run_id: str | None = None,
+        session_id: str | None = None,
     ) -> tuple[str, str, dict]:
         """执行工具，返回 (result_json_str, tool_source, extra)。"""
+        # 权限判定（唯一落点）：内置 / MCP / Web 三类工具共用同一条判定链
+        denial = self._check_permission(tool_name, tool_input, run_id=run_id, session_id=session_id)
+        if denial is not None:
+            return json.dumps(denial, ensure_ascii=False), "denied", {}
+
         # MCP 工具
         if tool_name.startswith("mcp_"):
             _, server, actual = tool_name.split("__", 1)
@@ -226,7 +261,7 @@ class ToolRegistry:
             from app.services.rag.ingest import ingest
 
             try:
-                stats = ingest(recreate=tool_input.get("recreate", True))
+                stats = ingest(recreate=bool(tool_input.get("recreate", False)))
                 return json.dumps(stats, ensure_ascii=False), "rag", {}
             except Exception as exc:  # noqa: BLE001
                 return json.dumps({"error": f"RAG 入库失败: {exc}"}, ensure_ascii=False), "rag", {}
@@ -252,8 +287,131 @@ class ToolRegistry:
         # 内置工具
         return json.dumps(self._dispatch_builtin(tool_name, tool_input, executor), ensure_ascii=False), "builtin", {}
 
+    # ------------------------------------------------------------------ #
+    # 权限判定
+    # ------------------------------------------------------------------ #
+    def _check_permission(
+        self,
+        tool_name: str,
+        tool_input: dict,
+        *,
+        run_id: str | None = None,
+        session_id: str | None = None,
+    ) -> dict | None:
+        """按权限规则判定一次工具调用（**S2 起为阻塞式审批**）。
+
+        返回 ``None`` 表示放行；返回字典表示被拒绝，调用方据此回给模型。
+
+        语义（doc/design/04 §3）：
+        - 判定走 ``app/services/security`` 引擎（归一化 → 规则匹配 → 信任分层回落）；
+        - 命中 ``ask`` 时**阻塞等待**用户决策（事件 + 审批端点），超时按 ``deny``；
+        - 每次受控动作写 JSONL 审计与决策日志（含命中规则与原因）。
+        """
+        import time
+
+        from app.core.config import settings
+        from app.core.workspace import get_workspace_dir
+        from app.services.security import audit
+        from app.services.security.permissions import PermissionRequest, PermissionService
+
+        service = PermissionService.instance()
+        service.approval_timeout = float(settings.permission_approval_timeout)
+        action = self._detect_action(tool_name, tool_input)
+        path = self._detect_path(tool_name, tool_input)
+        command = None
+        code = None
+        if tool_name == "execute_bash":
+            command = str(tool_input.get("command", "")) or None
+        if tool_name == "execute_python":
+            code = str(tool_input.get("code", "")) or None
+
+        request = PermissionRequest(
+            tool=tool_name, action=action, path=path, command=command,
+        )
+        # Python 代码危险调用扫描（补 engine 动作检测）
+        if code and action is None:
+            from app.services.security import policy
+
+            if policy.python_has_dangerous_calls(code):
+                request = PermissionRequest(
+                    tool=tool_name, action="external_script_exec", path=path, command=None,
+                )
+
+        started = time.monotonic()
+        decision = service.enforce(request, run_id=run_id, session_id=session_id)
+        latency_ms = int((time.monotonic() - started) * 1000)
+
+        if settings.permission_audit_enabled:
+            audit.record(
+                run_id=run_id, tool=tool_name, decision=decision.decision,
+                reason=decision.reason, target=decision.target,
+                matched_rule_id=decision.matched_rule.id if decision.matched_rule else None,
+                latency_ms=latency_ms,
+                request={"tool": tool_name, "path": path, "command": command, "action": action},
+            )
+
+        if decision.allowed:
+            return None
+
+        return {
+            "error": f"操作被权限策略拒绝（{decision.reason}）",
+            "permission": {
+                "decision": decision.decision,
+                "reason": decision.reason,
+                "scope": decision.scope,
+                "target": decision.target,
+                "risk": decision.risk,
+                "workspace_dir": str(get_workspace_dir()),
+            },
+        }
+
     @staticmethod
-    def _dispatch_builtin(tool_name: str, tool_input: dict, executor: LocalCodeExecutor) -> dict:
+    def _detect_action(tool_name: str, tool_input: dict) -> str | None:
+        """识别高危动作（批量删除 / 改系统配置 / 工作区外脚本）。"""
+        from app.core.config import settings
+
+        if tool_name == "execute_bash":
+            command = str(tool_input.get("command", ""))
+            lowered = command.lower()
+            if any(token in lowered for token in ("rm -rf", "del /", "rmdir /s", "format ")):
+                return "batch_delete"
+            if any(token in lowered for token in ("reg add", "reg delete", "chmod 777", "setx ")):
+                return "system_config_write"
+        if tool_name == "write_file":
+            target = str(tool_input.get("file_path", ""))
+            if target:
+                from app.core.workspace import is_in_workspace
+
+                if not is_in_workspace(target):
+                    try:
+                        import os
+
+                        from pathlib import Path
+
+                        resolved = Path(target).expanduser().resolve()
+                        if resolved == Path(settings.user_data_dir).resolve() or str(
+                            resolved
+                        ).startswith(str(settings.user_data_dir)):
+                            return "system_config_write"
+                    except (OSError, RuntimeError):
+                        pass
+        return None
+
+    @staticmethod
+    def _detect_path(tool_name: str, tool_input: dict) -> str | None:
+        """提取工具涉及的目标路径（用于路径维度判定）。"""
+        if tool_name in ("read_file", "write_file"):
+            return str(tool_input.get("file_path", "")) or None
+        if tool_name == "list_directory":
+            return str(tool_input.get("dir_path", "")) or None
+        return None
+
+    @classmethod
+    def _dispatch_builtin(cls, tool_name: str, tool_input: dict, executor: LocalCodeExecutor) -> dict:
+        if tool_name == "tool_search":
+            return cls._tool_search(tool_input)
+        if tool_name == "tool_load":
+            return cls._tool_load(tool_input)
         if tool_name == "read_file":
             return executor.read_file(tool_input["file_path"])
         if tool_name == "write_file":
@@ -265,6 +423,51 @@ class ToolRegistry:
         if tool_name == "list_directory":
             return executor.list_directory(tool_input["dir_path"])
         return {"error": f"未知工具: {tool_name}"}
+
+    # ------------------------------------------------------------------ #
+    # S5 / WP-5.1 工具检索与装载
+    # ------------------------------------------------------------------ #
+    @classmethod
+    def _tool_search(cls, tool_input: dict) -> dict:
+        """按关键词检索工具目录，返回 Top-K 候选（name + 描述 + 命名空间）。"""
+        from app.services.exec.catalog import build_catalog, search_catalog
+
+        query = str(tool_input.get("query", "") or "")
+        top_k = int(tool_input.get("top_k", 5) or 5)
+        catalog = build_catalog(BUILTIN_TOOLS)
+        hits = search_catalog(catalog, query, top_k=top_k)
+        return {
+            "query": query,
+            "candidates": [e.as_dict() for e in hits],
+            "hint": "如需完整参数，调用 tool_load 传入 names。",
+        }
+
+    @classmethod
+    def _tool_load(cls, tool_input: dict) -> dict:
+        """装载工具的完整 Schema（返回参数说明，之后可直接调用）。"""
+        import json
+
+        names = tool_input.get("names") or []
+        if isinstance(names, str):
+            names = [names]
+        by_name = {str(t.get("name")): t for t in BUILTIN_TOOLS}
+        loaded = []
+        missing = []
+        for n in names:
+            tool = by_name.get(str(n))
+            if tool is None:
+                missing.append(str(n))
+                continue
+            loaded.append({
+                "name": tool["name"],
+                "description": str(tool.get("description", ""))[:300],
+                "input_schema": tool.get("input_schema", {}),
+            })
+        return {
+            "loaded": loaded,
+            "missing": missing,
+            "schemas_json": json.dumps(loaded, ensure_ascii=False),
+        }
 
     # ------------------------------------------------------------------ #
     # System Prompt 附加段

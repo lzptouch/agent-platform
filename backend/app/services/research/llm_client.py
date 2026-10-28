@@ -12,10 +12,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from openai import OpenAI
-
 from app.core.config import settings
-from app.services.research.research_config import LLM_CONFIG
+from app.core.llm import get_llm_client
+from app.services.research.research_config import llm_config
 
 
 @dataclass
@@ -32,11 +31,14 @@ class LLMClient:
     """LLM 客户端封装（同步 + 流式）。"""
 
     def __init__(self) -> None:
-        self.client = OpenAI(
-            api_key=settings.dashscope_api_key or LLM_CONFIG.get("api_key", ""),
-            base_url=LLM_CONFIG["base_url"],
+        # 客户端统一由 app/core/llm.py 工厂提供（不再自建 OpenAI 实例）
+        cfg = llm_config()
+        self.client = get_llm_client(
+            "dashscope",
+            api_key=cfg["api_key"],
+            base_url=cfg["base_url"],
         )
-        self.default_model = LLM_CONFIG["model"]
+        self.default_model = cfg["model"]
 
     def chat(
         self,

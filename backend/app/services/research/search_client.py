@@ -13,7 +13,7 @@ import time
 import requests
 
 from app.core.config import settings
-from app.services.research.research_config import SEARCH_CONFIG
+from app.services.research.research_config import search_config
 from app.services.research.utils import SearchResponse, SearchResult
 
 logger = logging.getLogger(__name__)
@@ -23,10 +23,11 @@ class SearchClient:
     """网络搜索客户端封装（Bocha → Serper 降级）。"""
 
     def __init__(self) -> None:
-        self.api_key = settings.bocha_api_key or SEARCH_CONFIG.get("api_key", "")
-        self.base_url = SEARCH_CONFIG.get("base_url", "https://api.bocha.cn/v1/web-search")
-        self.default_count = SEARCH_CONFIG.get("default_count", 10)
-        self.summary = SEARCH_CONFIG.get("summary", True)
+        cfg = search_config()
+        self.api_key = cfg["api_key"]
+        self.base_url = cfg["base_url"]
+        self.default_count = cfg["default_count"]
+        self.summary = cfg["summary"]
 
     # ------------------------------------------------------------------ #
     # 能力探测

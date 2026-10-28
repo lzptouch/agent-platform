@@ -5,7 +5,9 @@ from fastapi import Request
 from app.core.state import init_app_state
 from app.services.agent_service import AgentService
 from app.services.code_executor import LocalCodeExecutor
+from app.services.desktop_service import DesktopService
 from app.services.mcp_manager import MCPManager
+from app.services.permissions import PermissionService
 from app.services.research.research_manager import ResearchManager
 from app.services.run_executor import RunExecutor
 from app.services.run_service import RunService
@@ -69,3 +71,13 @@ def get_run_executor(request: Request) -> RunExecutor:
 def get_scheduler_service(request: Request) -> SchedulerService:
     init_app_state(request.app)
     return request.app.state.scheduler_service
+
+
+def get_desktop_service(request: Request) -> DesktopService:
+    init_app_state(request.app)
+    return request.app.state.desktop_service
+
+
+def get_permission_service(request: Request) -> PermissionService:
+    init_app_state(request.app)
+    return request.app.state.permission_service

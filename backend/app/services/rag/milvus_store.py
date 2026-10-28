@@ -46,8 +46,18 @@ def create_collection(recreate: bool = False) -> Collection:
             Collection(col_name).drop()
         else:
             _col = Collection(col_name, consistency_level="Strong")
-            _col.load()
-            return _col
+            if not has_doc_id_field(_col):
+                # 旧 collection 没有 doc_id 字段（批次 03 之前建的）→ 重建，
+                # 否则无法按文档去重/清理。重建会丢数据，这里明确告警。
+                logger.warning(
+                    "collection %s 缺少 doc_id 字段（旧版本 schema），重建以支持幂等入库",
+                    col_name,
+                )
+                _col.drop()
+                _col = None
+            else:
+                _col.load()
+                return _col
 
     fields = [
         FieldSchema(name="pk", dtype=DataType.INT64, is_primary=True, auto_id=True),
@@ -57,6 +67,8 @@ def create_collection(recreate: bool = False) -> Collection:
             max_length=2048,
             enable_analyzer=True,  # BM25 需要服务端分词
         ),
+        # 幂等键（批次 03）：定位「哪个文档的 chunk」，支持删除与去重
+        FieldSchema(name="doc_id", dtype=DataType.VARCHAR, max_length=64),
         FieldSchema(name="sparse_vector", dtype=DataType.SPARSE_FLOAT_VECTOR),
         FieldSchema(name="dense_vector", dtype=DataType.FLOAT_VECTOR, dim=EMBEDDING_DIM),
     ]
@@ -99,16 +111,58 @@ def get_collection() -> Collection:
     return _col
 
 
-def insert_chunks(chunks: list[str], dense_vectors: list[list[float]], batch_size: int = 50) -> int:
-    """分批插入文本与稠密向量（稀疏向量由 BM25 Function 服务端自动生成）。"""
+def has_doc_id_field(col: Collection) -> bool:
+    """collection 是否带 ``doc_id`` 字段（旧版本没有）。"""
+    try:
+        return any(f.name == "doc_id" for f in col.schema.fields)
+    except Exception:  # noqa: BLE001 —— 读不到 schema 就当没有
+        return False
+
+
+def insert_chunks(
+    chunks: list[str],
+    dense_vectors: list[list[float]],
+    doc_ids: list[str] | None = None,
+    batch_size: int = 50,
+) -> int:
+    """分批插入文本与稠密向量（稀疏向量由 BM25 Function 服务端自动生成）。
+
+    ``doc_ids``：与 chunk 一一对应的幂等键（批次 03）；缺省时用空串占位。
+    """
     col = get_collection()
+    ids = doc_ids or [""] * len(chunks)
+    if len(ids) != len(chunks):
+        raise ValueError("doc_ids 与 chunks 长度不一致")
+    with_doc = has_doc_id_field(col)
     for i in range(0, len(chunks), batch_size):
-        col.insert([
-            chunks[i : i + batch_size],
-            dense_vectors[i : i + batch_size],
-        ])
+        if with_doc:
+            rows = [
+                {
+                    "text": chunks[j],
+                    "doc_id": ids[j],
+                    "dense_vector": dense_vectors[j],
+                }
+                for j in range(i, min(i + batch_size, len(chunks)))
+            ]
+            col.insert(rows)
+        else:
+            col.insert([
+                chunks[i : i + batch_size],
+                dense_vectors[i : i + batch_size],
+            ])
     col.flush()
     return col.num_entities
+
+
+def delete_by_doc_id(doc_id: str) -> int:
+    """按幂等键删除某个文档的全部 chunk（文件内容变更时清理旧版本）。"""
+    col = get_collection()
+    if not has_doc_id_field(col):
+        return 0
+    escaped = doc_id.replace('"', '\\"')
+    col.delete(expr=f'doc_id == "{escaped}"')
+    col.flush()
+    return 1
 
 
 def hybrid_search(

@@ -78,6 +78,15 @@ async function main() {
   await mkdir(DIST, { recursive: true })
   await cp(distSrc, DIST, { recursive: true })
 
+  // 6) 拷贝桌面端启动页（壳在窗口创建前加载 splash.html，缺失会导致启动失败）
+  const splash = path.join(FRONTEND_ROOT, 'splash.html')
+  if (existsSync(splash)) {
+    await cp(splash, path.join(DIST, 'splash.html'))
+    log('已拷贝启动页 →', path.join(DIST, 'splash.html'))
+  } else {
+    log('WARN: 未找到 frontend/splash.html，桌面端启动页将加载失败')
+  }
+
   const files = await readdir(DIST)
   log('完成:', DIST, '含', files.length, '顶层条目')
 }

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+from contextvars import ContextVar
 import os
 import socket
 import threading
@@ -35,6 +36,12 @@ if False:  # TYPE_CHECKING
     from app.services.run_executor import RunExecutor
 
 logger = logging.getLogger(__name__)
+
+#: 无人值守（定时/调度）上下文：True 表示当前 run 是定时触发，审批应降级为拒绝
+unattended_context: ContextVar[bool] = ContextVar("scheduler_unattended", default=False)
+
+#: 危险工具二次开关（D-29）：定时任务显式允许危险工具（write_file / execute_python / execute_bash）
+dangerous_tools_context: ContextVar[bool] = ContextVar("scheduler_dangerous_tools", default=False)
 
 LEASE_NAME = "scheduler"
 MISFIRE_GRACE_SECONDS = 300
@@ -196,6 +203,13 @@ class SchedulerService:
             self.cleanup_runs, CronTrigger(hour=3, minute=30, timezone=ZoneInfo(settings.tz)),
             id="__cleanup__", replace_existing=True,
         )
+        # 周期巡检：超期未完成的 run 标记为 interrupted（S-08-08）
+        if settings.schedule_stale_sweep_minutes > 0:
+            self.scheduler.add_job(
+                self.sweep_stale_runs,
+                IntervalTrigger(minutes=settings.schedule_stale_sweep_minutes),
+                id="__stale_sweep__", replace_existing=True,
+            )
         self._stop_event.clear()
         self._renew_thread = threading.Thread(target=self._renew_loop, name="scheduler-lease", daemon=True)
         self._renew_thread.start()
@@ -269,6 +283,29 @@ class SchedulerService:
         from app.services.run_service import RunService
 
         return RunService().recover_interrupted()
+
+    def sweep_stale_runs(self) -> int:
+        """周期巡检：崩溃残留的 ``running`` 不再永久停留（S-08-08）。
+
+        宽限期必须大于单次运行的上限（``schedule_run_timeout``），
+        否则会把**仍在正常执行**的长任务误判为中断。
+        """
+        from app.services.run_service import RunService
+
+        grace = max(
+            settings.schedule_stale_sweep_grace,
+            settings.schedule_run_timeout + 60,
+        )
+        try:
+            count = RunService().recover_interrupted(
+                grace_seconds=grace, reason="超过时限未完成，周期巡检标记为中断",
+            )
+        except Exception:  # noqa: BLE001 —— 巡检失败不影响调度
+            logger.exception("周期巡检失败")
+            return 0
+        if count:
+            logger.warning("周期巡检：标记 %d 个超期 run 为 interrupted", count)
+        return count
 
     # ------------------------------------------------------------------ #
     # CRUD
@@ -416,7 +453,7 @@ class SchedulerService:
             "plan_first": bool(row.plan_first),
         }
 
-    def _fire(self, task_id: str) -> None:
+    def _fire(self, task_id: str, slot_override: str | None = None) -> None:
         from app.services.run_service import RunService
 
         run_service = RunService()
@@ -426,7 +463,7 @@ class SchedulerService:
                 return
             task = task_to_out(row)
 
-        slot = self._compute_slot(row)
+        slot = slot_override or self._compute_slot(row)
 
         # 退避
         backoff = _parse_iso(row.backoff_until)
@@ -439,8 +476,8 @@ class SchedulerService:
             self._mark_task(task_id, last_status="skipped")
             return
 
-        # 每日配额
-        if run_service.count_today_runs(task_id) >= task.daily_run_limit:
+        # 每日配额（按**任务时区**的本地自然日，不是 UTC 日）
+        if run_service.count_today_runs(task_id, task.timezone) >= task.daily_run_limit:
             run = run_service.create_run(
                 trigger="schedule", task_id=task_id, scheduled_for=slot, meta={"reason": "daily_limit"},
             )
@@ -464,22 +501,28 @@ class SchedulerService:
             return
 
         meta = self._build_exec_meta(row)
-        result = self.run_executor.execute_sync(
-            task.prompt,
-            mode=task.mode,
-            team_id=task.team_id,
-            skills=meta["skills"],
-            enable_mcp=meta["enable_mcp"],
-            mcp_servers=meta["mcp_servers"],
-            enable_rag=meta["enable_rag"],
-            enable_web_research=meta["enable_web_research"],
-            enable_reflection=meta["enable_reflection"] and task.mode == "work",
-            plan_first=bool(task.plan_first),
-            trigger="schedule",
-            task_id=task_id,
-            scheduled_for=slot,
-            run_id=run.id,
-        )
+        # 无人值守上下文：本 run 是定时触发 → 权限 ask 降级为 deny（不挂起）
+        unattended_context.set(True)
+        try:
+            result = self.run_executor.execute_sync(
+                task.prompt,
+                mode=task.mode,
+                team_id=task.team_id,
+                skills=meta["skills"],
+                enable_mcp=meta["enable_mcp"],
+                mcp_servers=meta["mcp_servers"],
+                enable_rag=meta["enable_rag"],
+                enable_web_research=meta["enable_web_research"],
+                enable_reflection=meta["enable_reflection"] and task.mode == "work",
+                plan_first=bool(task.plan_first),
+                trigger="schedule",
+                task_id=task_id,
+                scheduled_for=slot,
+                run_id=run.id,
+            )
+        finally:
+            unattended_context.set(False)
+            dangerous_tools_context.set(False)
 
         if result.get("skipped"):
             run_service.finish(run.id, "skipped", error=result.get("error", "busy"))
@@ -504,6 +547,45 @@ class SchedulerService:
             error=error,
             increment=True,
         )
+        # S7 / WP-7.4：通知实装 —— run 终态后按 delivery 配置投递
+        self._deliver(task, row, run, result, error)
+
+    def _deliver(self, task, row, run, result: dict, error: str | None) -> None:
+        """按 delivery 配置投递通知（失败不改任务状态）。"""
+        try:
+            delivery = json.loads(row.delivery_json or "{}")
+        except (json.JSONDecodeError, AttributeError):
+            return
+        channels = delivery.get("channels") or []
+        if not channels:
+            return
+        from app.services.scheduler.delivery import DeliveryConfig, DeliveryPayload, deliver
+
+        artifacts = []
+        try:
+            from app.services.workspace import artifacts as art
+
+            artifacts = [a["title"] or a["path"] for a in art.list_artifacts(run.id)]
+        except Exception:  # noqa: BLE001
+            artifacts = []
+
+        payload = DeliveryPayload(
+            task_name=task.name,
+            status="failed" if error else "success",
+            duration_ms=int(result.get("duration_ms") or 0),
+            summary=str(result.get("answer") or result.get("error") or "")[:500],
+            artifacts=artifacts,
+            run_id=run.id,
+        )
+        for cfg in channels:
+            if not isinstance(cfg, dict) or not cfg.get("type"):
+                continue
+            deliver(DeliveryConfig(
+                type=str(cfg.get("type")),
+                target=str(cfg.get("target", "")),
+                template=str(cfg.get("template", "")),
+                enabled=bool(cfg.get("enabled", True)),
+            ), payload)
 
     def _mark_task(self, task_id: str, *, last_status: str, error: str | None = None,
                    increment: bool = False) -> None:
@@ -625,6 +707,96 @@ class SchedulerService:
             "jobs": jobs,
             "enabled": settings.scheduler_enabled,
         }
+
+    # ------------------------------------------------------------------ #
+    # 补跑（桌面端唤醒后）
+    # ------------------------------------------------------------------ #
+    def rescue_missed_runs(
+        self,
+        since: datetime | None = None,
+        limit: int = 20,
+    ) -> dict:
+        """补跑挂起期间错过的定时任务。
+
+        语义（见 ``doc/design/03-桌面壳与后端进程编排设计.md`` §3.2.1）：
+
+        - 每个任务**最多补跑一次**（取窗口内最后一次应触发时刻）；
+        - 补跑使用**原本的槽位时间**而非当前时间，由 ``runs`` 表的
+          ``UNIQUE(task_id, scheduled_for)`` 保证同一槽位只跑一次；
+        - 超过 ``desktop_missed_window_hours`` 的错过任务**只统计不补跑**。
+        """
+        now = datetime.now(timezone.utc)
+        window = timedelta(hours=max(1, settings.desktop_missed_window_hours))
+        lower_bound = since or (now - window)
+        effective_from = max(lower_bound, now - window)
+
+        rescued: list[dict] = []
+        skipped = 0
+        items: list[dict] = []
+
+        with db_session() as db:
+            rows = db.scalars(select(ScheduledTaskRow).where(ScheduledTaskRow.enabled == 1)).all()
+            candidates = [(row.id, row.schedule_kind, row.cron_expr, row.interval_seconds,
+                           row.timezone, row.created_at) for row in rows]
+
+        for task_id, kind, cron_expr, interval_seconds, tz_name, created_at in candidates[:limit]:
+            slot = self._missed_slot(kind, cron_expr, interval_seconds, tz_name, created_at, effective_from, now)
+            if slot is None:
+                skipped += 1
+                continue
+            item = {"task_id": task_id, "scheduled_for": slot, "status": "queued"}
+            items.append(item)
+            self._fire(task_id, slot_override=slot)
+            item["status"] = "rescued"
+            rescued.append(item)
+
+        return {
+            "rescued": len(rescued),
+            "skipped": skipped,
+            "window_hours": max(1, settings.desktop_missed_window_hours),
+            "items": items,
+        }
+
+    @staticmethod
+    def _missed_slot(
+        kind: str,
+        cron_expr: str | None,
+        interval_seconds: int | None,
+        tz_name: str,
+        created_at: str | None,
+        since: datetime,
+        now: datetime,
+    ) -> str | None:
+        """窗口内最后一次应触发的槽位时间（ISO8601 UTC）；无则返回 None。"""
+        if kind == "interval":
+            interval = interval_seconds or 60
+            anchor = _parse_iso(created_at) or since
+            idx = int((now - anchor).total_seconds() // interval)
+            if idx < 0:
+                return None
+            slot = anchor + timedelta(seconds=idx * interval)
+            if slot < since or slot > now:
+                return None
+            return slot.astimezone(timezone.utc).isoformat()
+
+        if not cron_expr:
+            return None
+        try:
+            trigger = CronTrigger.from_crontab(cron_expr.strip(), timezone=ZoneInfo(tz_name))
+        except Exception:  # noqa: BLE001 - 非法 cron 不补跑
+            return None
+
+        cursor = since
+        last: datetime | None = None
+        for _ in range(200):  # 上限防止长窗口下的遍历放大
+            nxt = trigger.get_next_fire_time(cursor, now)
+            if nxt is None:
+                break
+            last = nxt
+            cursor = nxt + timedelta(seconds=1)
+        if last is None:
+            return None
+        return last.astimezone(timezone.utc).isoformat()
 
     @staticmethod
     def validate_cron(expr: str, timezone_str: str) -> dict:

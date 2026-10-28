@@ -1,93 +1,133 @@
 # agent 文档集
 
-> **项目定位**：agent 平台，提供 5 条能力链（**Skill / MCP / RAG / Web Research / Deep Research**）。FastAPI 后端 + Vue 3 前端，单端口部署。
-> **文档集范围**：`doc/`（本目录，主题分析与通用原理）+ `deploy/`（随代码维护的部署手册）
-> + `backend/docs/`（按能力链细分）+ `frontend/docs/`（接口契约与 SSE 协议）。
+> **项目定位**：agent 平台，提供 5 条能力链（**Skill / MCP / RAG / Web Research / Deep Research**）
+> + 4 个运行域（双模式会话 / Skill 团队 / 定时任务 / 运行账本）。
+> FastAPI 后端 + Vue 3 + TS + Element Plus 前端 + Electron 桌面壳。
+>
+> **文档集范围**：`doc/`（本目录）+ `deploy/`（随代码维护的部署手册）。
+>
+> **目标形态的源头**：仓库根 [`文档.md`](../文档.md)（WorkBuddy 通用智能工作台 / 一体化内嵌架构）。
+> 它的实现规格（§11）、能力缺口（§2.7）与交互清单（§8）已整理进
+> [`design/15-目标形态与实现状态.md`](./design/15-目标形态与实现状态.md)（**逐条带实现状态**），
+> 未实现项进 [`plan/09`](./plan/09-交互细节与形态增量.md)。
 
-## 文档清单
+---
 
-| 类别 | # | 文档 | 核心回答 |
-|---|---|------|----------|
-| **analysis** | 01 | [模块.md](./analysis/01_模块.md) | 5 能力链如何编排？6 Skill / 3 MCP Server 怎么集成？ |
-| analysis | 02 | [接口.md](./analysis/02_接口.md) | HTTP API 清单 + 4 链开关 + WebUI 架构 |
-| analysis | 03 | [链路分析.md](./analysis/03_链路分析.md) | Agent 主链路 + Deep Research 时序图 |
-| analysis | 04 | [三端一致性.md](./analysis/04_三端一致性.md) | Milvus Lite + tasks.json 持久化策略 |
-| analysis | 05 | [可观测体系设计.md](./analysis/05_可观测体系设计.md) | 现状 + Prometheus/OTel/Langfuse/Sentry 改造 |
-| analysis | 06 | [高并发.md](./analysis/06_高并发.md) | 线程池 + uvloop + SSE 限流 |
-| analysis | 07 | [部署.md](./analysis/07_部署.md) | 单端口部署（FastAPI 托管前端 dist） |
-| analysis | 08 | [测试体系.md](./analysis/08_测试体系.md) | 16 测试基线 + 五层模型 + 故障注入 |
-| analysis | 09 | [代码规范.md](./analysis/09_代码规范.md) | pydantic-settings + Vue 3 + Ruff/mypy |
-| analysis | 10 | [功能覆盖矩阵.md](./analysis/10_功能覆盖矩阵.md) | 三源项目（agent skill / MCP / webResearch）逐项功能对照与验证结论 |
-| analysis | 11 | [deepResearch 整合分析](./analysis/11_deepResearch整合分析.md) | deep_research 融入方案：架构契合度 / 迁移计划 / 风险与验收 |
-| analysis | 12 | [前端对标 WorkBuddy 与 Trae 工作版](./analysis/12_前端对标WorkBuddy与Trae工作版.md) | v3.1：取证 + 7 条设计公理 + 差异矩阵 + 自评勘误 + 7 阶段计划 + 实施落地 + **全量测试报告**（后端 69/69 接口、契约 58/58、单测 17/17、E2E 121 项全绿） |
-| **knowledge** | 00 | [README.md](./knowledge/00_README.md) | 项目独有技术 + 通用原理 + 前端专题 双索引 |
-| knowledge | 01 | [Skill 注册表与四级 Skill 设计](./knowledge/01_Skill注册表与四级Skill设计.md) | SkillManager + 渐进式披露 + 6 Skill |
-| knowledge | 02 | [MCP 协议原理与 stdio 实现](./knowledge/02_MCP协议原理与stdio实现.md) | MCPManager + 3 stdio Server + 工具反射 |
-| knowledge | 03 | [Orchestrator-Workers 多智能体架构](./knowledge/03_Orchestrator-Workers多智能体架构.md) | Deep Research 5 阶段 + OODA + 评分 |
-| knowledge | 04 | [质量评分迭代与任务持久化](./knowledge/04_质量评分迭代与任务持久化.md) | 评分机制 + tasks.json + SQLite 升级 |
-| knowledge | 05 | [Milvus Lite 本地化与 BM25 混合检索](./knowledge/05_MilvusLite本地化与BM25混合检索.md) | Milvus Lite + BM25 Function + DashScope Embedding |
-| knowledge | 06 | [Vue 3 极简前端与 SSE 自研消费](./knowledge/06_Vue3极简前端与SSE自研消费.md) | 8 组件 + 自研 readSSE + 4 链 UI |
-| knowledge | 07 | [Langfuse 集成与 LLM 追踪](./knowledge/07_Langfuse集成与LLM追踪.md) | OTel 接入 + Prompt 版本化 + 评估 |
-| **deployment** | 00 | [导览与总览](./deployment/00_导览与总览.md) | 部署形态 / 组件与端口 / deploy 文件地图 / 配置项 / 快速开始 |
-| deployment | 07 | [故障排查手册](./deployment/07_故障排查手册.md) | 按症状检索的避坑清单（Compose / 构建 / 反代与 SSE / Windows） |
+## 一、四分区结构（2026-10-28 重整）
 
-**总计**：12 篇 analysis + 8 篇 knowledge（含 00_README 索引）+ 2 篇 deployment = **22 篇**
+```
+doc/
+├─ analysis/   ① 当前代码的事实 + 还剩什么缺陷      （读代码的人看这里）
+├─ design/     ② 项目总目标 + 已实现部分的标记        （做决策的人看这里）
+├─ plan/       ③ 接下来要继续完成并测试的功能         （排期的人看这里）
+└─ knowledge/  ④ 通用原理（为什么这么设计）          （学习的人看这里）
+```
 
-> 部署手册随代码维护，放在 `deploy/` 而非本目录：
-> [`deploy/README.md`](../deploy/README.md)（架构 + 步骤 + 排错 + 实测）与
-> [`deploy/部署文件分析与操作手册.md`](../deploy/部署文件分析与操作手册.md)（文件全景 + 两条路线 + 验收清单）。
+> **不留归档副本**：历史内容（阶段任务卡、WorkBuddy 阶段 1~4 施工计划、竞品对标原文、
+> 2026-09 旧分析、重写前设计稿）**已全部整理进上面四区并删除原目录**——
+> 内容有归属，副本不重复。
 
-## 阅读顺序
+**分工纪律**（写在 `analysis/00` §4 与 `plan/README`）：
 
-- **架构师/新人**：先读 [analysis/01_模块.md](./analysis/01_模块.md) → [analysis/03_链路分析.md](./analysis/03_链路分析.md)
-- **后端开发**：[analysis/02_接口.md](./analysis/02_接口.md) + knowledge 01~05
-- **前端开发**：默认前端为 `frontend/web/vue-element-plus`（Vue 3 + TS + Element Plus），
-  先看 [`frontend/README.md`](../frontend/README.md) 与 [`frontend/docs/`](../frontend/docs/) 的接口契约 / SSE 协议，
-  再读 [analysis/02_接口.md](./analysis/02_接口.md) WebUI 章节 + knowledge 06（SSE 消费原理）
-- **LLM 应用工程师**：knowledge 03 + knowledge 07（Langfuse）
-- **验收 / 回归**：[analysis/10_功能覆盖矩阵.md](./analysis/10_功能覆盖矩阵.md)（功能完整性核查）
-- **接手第 5 链**：[analysis/11_deepResearch 整合分析](./analysis/11_deepResearch整合分析.md)
-- **改造前端形态**：[analysis/12_前端对标 WorkBuddy 与 Trae 工作版](./analysis/12_前端对标WorkBuddy与Trae工作版.md)
-  （含官方真实界面取证截图 `doc/analysis/assets/`、差异矩阵、合理性自评勘误与 7 阶段改造计划）
-- **运维 / 交付**：先读 [deployment/00_导览与总览.md](./deployment/00_导览与总览.md)（形态、端口、文件地图、快速开始），
-  构建与运维细节见 [`deploy/README.md`](../deploy/README.md) 与
-  [`deploy/部署文件分析与操作手册.md`](../deploy/部署文件分析与操作手册.md)；
-  遇到报错直接查 [deployment/07_故障排查手册.md](./deployment/07_故障排查手册.md)
-- **部署方案设计**：[analysis/07_部署.md](./analysis/07_部署.md)（设计建议与演进路线）+
-  [analysis/05_可观测体系设计.md](./analysis/05_可观测体系设计.md)；
-  **仓库内实际交付的部署工程**见 `deployment/00` 与 `deploy/`
+1. `analysis` 只写**代码里存在的实现**与**仍存在的缺陷**，不写计划；
+2. `design` 是**目标形态**，其中「状态」列按当前代码标注 ✅已实现 / ⏳部分 / ⛔未实现；
+3. `plan` 只写**还没做**的：范围、步骤、验收标准、回滚；
+4. 数字口径**唯一来源** = `analysis/00` §5 口径常量表。
 
-## 目录分工
+---
 
-- `doc/analysis/` —— 主题深度分析（当前实现是什么、怎么组织的、有什么偏差）
-- `doc/knowledge/` —— 通用原理剖析（协议、架构模式、第三方组件原理）
-- `doc/deployment/` —— 应用侧部署导览与排错（读者视角）
-- `deploy/*.md` —— **随代码维护**的部署操作手册（运维视角，紧贴 Docker 资产）
-- `backend/docs/{mcp,rag,research,skills}/` —— 按能力链细分的模块文档
-- `frontend/docs/` —— 接口契约（`api-contract.md`）/ SSE 协议（`sse-protocol.md`）/ 设计 Token（`design-tokens.md`）
-- `CICD清理实施计划.md` —— 历史实施计划记录（CI/CD 与 K8s 工程已于 2026-10-18 移除）
+## 二、文档清单
 
-### 历史沿革
+### ① `doc/analysis/` —— 代码分析与风险台账（**当前实现的事实**）
 
-- 原 `docs/`（仓库根）已于 2026-10-19 **并入本目录**：`功能覆盖矩阵.md` → [analysis/10](./analysis/10_功能覆盖矩阵.md)，
-  `整合分析-deepResearch融入AgentPlatform.md` → [analysis/11](./analysis/11_deepResearch整合分析.md)；
-  同名临时 HTML 渲染产物（`_tmp.html`）一并删除
-- 原根目录 `部署文件分析与操作手册.md` 已于 2026-10-19 移入 [`deploy/`](../deploy/)
-- 原 `devops/` 与 `deployment/01~06、08`（Jenkins / Harbor / K8s / 监控栈 / 压测）已移除，不再随仓库维护
+| # | 文档 | 核心回答 |
+|---|------|----------|
+| 00 | [README.md](./analysis/00_README.md) | 从哪读起、**口径常量表**（唯一数字来源） |
+| 01 | [架构总览](./analysis/01_架构总览.md) | 平台由哪些层组成？启动做了什么？两种运行模式怎么区分？ |
+| 02 | [能力链实现](./analysis/02_能力链实现.md) | Skill / MCP / RAG / Web Research / Deep Research 五链各自怎么实现？ |
+| 03 | [Agent 执行引擎与事件协议](./analysis/03_Agent执行引擎与事件协议.md) | function-calling 循环怎么跑？25 种 SSE 事件各是什么？ |
+| 04 | [数据模型与持久化](./analysis/04_数据模型与持久化.md) | 21 张业务表怎么设计？幂等与一致性怎么保证？ |
+| 05 | [HTTP 接口总览](./analysis/05_HTTP接口总览.md) | 118 个操作分别做什么？错误码与状态码怎么用？ |
+| 06 | [前端架构与接口契约](./analysis/06_前端架构与接口契约.md) | 19 个视图怎么组织？前端如何消费 SSE？ |
+| 07 | [DeepResearch 链路](./analysis/07_DeepResearch链路.md) | Orchestrator-Workers + OODA + 评分迭代怎么协同？ |
+| 08 | [调度与运行账本](./analysis/08_调度与运行账本.md) | 定时任务如何防重、幂等、退避？运行记录如何回放？ |
+| 09 | [部署形态与端口矩阵](./analysis/09_部署形态与端口矩阵.md) | 三种部署形态怎么选？端口/配置项/数据目录各是什么？ |
+| 10 | [可观测体系现状与方案](./analysis/10_可观测体系现状与方案.md) | 现在能观测到什么？缺什么？ |
+| 11 | [高并发现状与瓶颈](./analysis/11_高并发现状与瓶颈.md) | 真实并发模型是什么？瓶颈在哪？ |
+| 12 | [能力覆盖与风险台账](./analysis/12_能力覆盖与风险台账.md) | 每个能力实现到什么程度？**还剩哪些缺陷**？ |
+| 13 | [桌面端现状盘点](./analysis/13_桌面端现状盘点与需求论证.md) | 桌面壳现在长什么样？与后端怎么耦合？打包与自检链路？ |
 
-## 外部资料来源
+### ② `doc/design/` —— 总目标与**已实现标记**
 
-遵循计划文档 [`项目分析与通用知识文档建设计划.md`](c:\workspace\note\知识点\人工智能开发全栈\项目分析与通用知识文档建设计划.md) v1.1 的「五段式」结构（当前实现 → 原理剖析 → 业界做法调研 → 操作步骤 → 参考文献附录）。
+| # | 文档 | 核心回答 |
+|---|------|----------|
+| 00 | [总体设计](./design/00-总体设计.md) | **项目总目标**：定位、边界、形态、原则 |
+| 01 | [功能需求规格](./design/01-功能需求规格.md) | 需求条目（`F-xx`）与验收口径 |
+| 02 | [系统架构设计](./design/02-系统架构设计.md) | 目标架构与依赖方向 |
+| 03 | [桌面壳与后端进程编排设计](./design/03-桌面壳与后端进程编排设计.md) | 壳与 sidecar 的编排契约 |
+| 04 | [本地数据与安全边界设计](./design/04-本地数据与安全边界设计.md) | 本地数据的边界与安全模型 |
+| 05 | [数据模型与 API 设计](./design/05-数据模型与API设计.md) | 目标数据模型与接口契约 |
+| 06 | [前端界面设计](./design/06-前端界面设计.md) | 界面信息架构与交互规范 |
+| 07 | [实施路线图与风险](./design/07-实施路线图与风险.md) | 阶段划分与风险 |
+| 08 | [实现交付记录](./design/08-实现交付记录.md) | 逐阶段的交付实况（证据级） |
+| 09 | [差距矩阵与整改清单](./design/09-差距矩阵与整改清单.md) | **76 条差距 + 状态列（按当前代码复核）** |
+| 10 | [测试与验收策略](./design/10-测试与验收策略.md) | 测试分层与验收门禁 |
+| 11 | [竞品对标与设计依据](./design/11-竞品对标与设计依据.md) | 外部产品事实 + 对我们的影响（设计输入） |
+| 12 | [阶段交付台账](./design/12-阶段交付台账.md) | S0~S8 的 82 条执行记录（自动汇总） |
+| 13 | [能力演进与实现对照](./design/13-能力演进与实现对照.md) | WorkBuddy 阶段 1~4 的能力 → 当前代码位置与现状 |
+| 14 | [测试与发布策略](./design/14-测试与发布策略.md) | 怎么测、怎么发、怎么回滚（含冒烟清单） |
+| 15 | [目标形态与实现状态](./design/15-目标形态与实现状态.md) | 仓库根 `文档.md` 的实现规格/缺口/交互清单 → 本仓库落点与**实现状态** |
 
-主要参考：
-- **官方文档**：FastAPI、Vue 3、Milvus Lite、Anthropic MCP、Anthropic Skills、Langfuse、OpenTelemetry
-- **业界博客**：Anthropic「Building Effective Agents」(2024-12) + Anthropic「Multi-Agent Research System」(2025-06)
-- **OSS 项目**：AutoGen、CrewAI、FastMCP、OpenLLMetry、Arize Phoenix
+### ③ `doc/plan/` —— 接下来要**继续完成并测试**的功能
 
-## 版本信息
+| # | 批次 | 目标 | 优先级 |
+|---|---|---|---|
+| 00 | [README](./plan/README.md) | 批次索引与通用约定（回归口径 / 门禁 / 回滚纪律） | — |
+| 01 | [执行边界与输入限制](./plan/01-执行边界与输入限制.md) | 代码执行资源限制、上传大小/类型限制 | P1 |
+| 02 | [桌面在世交互与速记](./plan/02-桌面在世交互与速记.md) | 托盘速记、Boss Key、通知跳转、开机自启、速记形态、附件细节、**折叠接线** | P1 |
+| 03 | [数据一致性与调度细节](./plan/03-数据一致性与调度细节.md) | 入库幂等、日志落盘、任务时区、`run_id`、周期巡检、危险工具开关 | P2 |
+| 04 | [流式与深链路补齐](./plan/04-流式与深链路补齐.md) | LLM 流式、Research checkpoint、上下文事件精简、恢复持久化、重连退避 | P2 |
+| 05 | [结构收敛](./plan/05-结构收敛.md) | 调度四模块拆分、MCP 两级配置合并、SSE 传输补真 | P2 |
+| 06 | [清理与规模化](./plan/06-清理与规模化.md) | 死代码、软删除、约束、限流、发布体积与签名、多副本 | P3 |
+| 07 | 文档订正（**已作废**） | 原 `backend/docs/`、`frontend/docs/` 已于 2026-10-28 整体删除，批次随之作废 | — |
+| 08 | [测试与发布收尾](./plan/08-测试与发布收尾.md) | CI 接线、分层 marker、迁移演练、安装冒烟、壳单测补齐 | P3 |
 
-- 文档生成时间：2026-09-15（analysis 01~09 / knowledge）；2026-10-18（deployment 重写）；2026-10-19（analysis 10/11 并入、前端收敛复核）
-- 对应代码版本：截至 2026-09-15 agent 仓库内容（analysis 01~09 / knowledge）；
-  `docker-compose.yml` + `deploy/**`（deployment，2026-10-18 复核）；前端收敛为唯一实现 `frontend/web/vue-element-plus`（2026-10-19）
-- 文档作者：本工作会话
-- 维护方式：随源代码演进，每个文档头部注明「整理日期」+ 「对照当前代码复核：xxx」
+### ④ `doc/knowledge/` —— 通用原理剖析
+
+| # | 文档 | 核心回答 |
+|---|------|----------|
+| 00 | [README.md](./knowledge/00_README.md) | 项目独有技术 + 通用原理 + 前端专题 双索引 |
+| 01 | [Skill 注册表与四级 Skill 设计](./knowledge/01_Skill注册表与四级Skill设计.md) | SkillManager + 渐进式披露 + 6 Skill |
+| 02 | [MCP 协议原理与 stdio 实现](./knowledge/02_MCP协议原理与stdio实现.md) | MCPManager + 3 stdio Server + 工具反射 |
+| 03 | [Orchestrator-Workers 多智能体架构](./knowledge/03_Orchestrator-Workers多智能体架构.md) | Deep Research 5 阶段 + OODA + 评分 |
+| 04 | [质量评分迭代与任务持久化](./knowledge/04_质量评分迭代与任务持久化.md) | 评分机制 + 持久化 |
+| 05 | [Milvus Lite 本地化与 BM25 混合检索](./knowledge/05_MilvusLite本地化与BM25混合检索.md) | Milvus Lite + BM25 Function + DashScope Embedding |
+| 06 | [Vue 3 前端与 SSE 消费](./knowledge/06_Vue3前端与SSE消费.md) | Vue 3 + TS 前端架构 + SSE 消费原理 |
+| 07 | [Langfuse 集成与 LLM 追踪](./knowledge/07_Langfuse集成与LLM追踪.md) | OTel 接入 + Prompt 版本化 + 评估（**建议性文档，代码未接入**） |
+
+---
+
+## 三、阅读路径
+
+| 角色 / 任务 | 顺序 |
+|---|---|
+| **新人（1~2 天）** | `analysis/00` → `analysis/01` → `analysis/02` → `analysis/03` |
+| **后端开发** | `analysis/03` → `analysis/05` → `analysis/04` → `analysis/08` |
+| **前端开发** | `analysis/06` → `analysis/05` → `analysis/03` §5 |
+| **运维 / 交付** | `design/14` → `analysis/09` → `analysis/08` → `deploy/README.md` |
+| **排期 / 评估** | `design/09`（状态列）→ `plan/README` → `design/07` |
+| **桌面端** | `analysis/13` → `design/03` → `design/12` |
+| **按具体任务查** | 「想知道 X 在哪」→ `analysis/12` §1 覆盖矩阵 → 直接跳该篇 |
+
+---
+
+## 四、门禁与校验
+
+| 脚本 | 用途 |
+|---|---|
+| `plan/_gate/check_endpoint_table.py` | **端点表 ↔ OpenAPI 一致性**（当前 118/118 ✅） |
+| `plan/_gate/check_all.py` / `check_links.py` / `check_refs.py` | 文档结构 / 链接 / 引用校验 |
+| `plan/_gate/mark_gap_status.py` | 给 `design/09` 的 76 条差距打状态标记（幂等：已打过则跳过） |
+
+> **约定**：改代码后要同步 `analysis/00` 的常量表、`analysis/05` 的端点表、`design/09` 的状态列；
+> 未完成项必须在 `plan/` 立项。

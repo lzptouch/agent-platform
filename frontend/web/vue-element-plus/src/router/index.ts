@@ -3,8 +3,6 @@ import WorkspaceLayout from '@/layouts/WorkspaceLayout.vue'
 import AdminLayout from '@/layouts/AdminLayout.vue'
 import WorkspaceView from '@/views/WorkspaceView.vue'
 import CapabilitiesView from '@/views/CapabilitiesView.vue'
-import ChatView from '@/views/ChatView.vue'
-import WorkView from '@/views/WorkView.vue'
 import ResearchView from '@/views/ResearchView.vue'
 import SystemStatusView from '@/views/SystemStatusView.vue'
 import FilesView from '@/views/FilesView.vue'
@@ -16,17 +14,12 @@ import SchedulesView from '@/views/SchedulesView.vue'
 import MCPView from '@/views/MCPView.vue'
 import WRChatView from '@/views/WRChatView.vue'
 import SettingsView from '@/views/SettingsView.vue'
-
-/** v3 灰度开关（与 stores/flags.ts 同源；路由阶段读 localStorage，避免依赖 Pinia 初始化顺序） */
-function v3Enabled(): boolean {
-  try {
-    const raw = localStorage.getItem('__ws_v3')
-    if (raw === null) return true
-    return raw === '1' || raw === 'true'
-  } catch {
-    return true
-  }
-}
+import DesktopSettingsView from '@/views/DesktopSettingsView.vue'
+import RolesView from '@/views/RolesView.vue'
+import SpacesView from '@/views/SpacesView.vue'
+import NotFoundView from '@/views/NotFoundView.vue'
+import PluginsView from '@/views/PluginsView.vue'
+import BoardView from '@/views/BoardView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -39,7 +32,19 @@ const router = createRouter({
     },
     {
       path: '/',
-      redirect: () => (v3Enabled() ? '/workspace' : '/chat'),
+      redirect: '/workspace',
+    },
+
+    // ===== 侧栏入口对应的路由（此前缺失 → 点击白屏）=====
+    {
+      path: '/assistant',
+      component: WorkspaceLayout,
+      children: [{ path: '', component: WorkspaceView }],
+    },
+    {
+      path: '/spaces',
+      component: AdminLayout,
+      children: [{ path: '', component: SpacesView }],
     },
 
     // ===== 能力管理后台（v3 阶段 5 归位）=====
@@ -56,20 +61,12 @@ const router = createRouter({
         { path: 'web', component: WebResearchView },
         { path: 'status', component: SystemStatusView },
         { path: 'settings', component: SettingsView },
+        { path: 'roles', component: RolesView },
+        { path: 'plugins', component: PluginsView },
+        { path: 'boards', component: BoardView },
+        { path: 'desktop', component: DesktopSettingsView },
         { path: 'lab/wr', component: WRChatView },
       ],
-    },
-
-    // ===== 旧版对话 / 工作页（保留可访问，作为灰度回退目标）=====
-    {
-      path: '/chat',
-      component: AdminLayout,
-      children: [{ path: '', component: ChatView }],
-    },
-    {
-      path: '/work',
-      component: AdminLayout,
-      children: [{ path: '', component: WorkView }],
     },
 
     // ===== 其余旧路径：保留可访问 → 重定向到新归位（计划 §10.4）=====
@@ -84,6 +81,9 @@ const router = createRouter({
     { path: '/status', redirect: '/admin/status' },
     { path: '/settings', redirect: '/admin/settings' },
     { path: '/wr', redirect: '/admin/lab/wr' },
+
+    // ===== 兜底：未知路径不再白屏（S8 修复）=====
+    { path: '/:pathMatch(.*)*', component: NotFoundView },
   ],
 })
 

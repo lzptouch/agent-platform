@@ -4,7 +4,7 @@
  */
 
 import { Endpoints } from './endpoints'
-import { get, post, put, patch, del, upload } from './client'
+import { get, post, put, patch, del, upload, request } from './client'
 import type {
   HealthResp, ModelsResp, AgentStatusResp, RunResult, AgentEvent,
   SkillListResp, SkillDetail, ValidationResult, SkillMeta,
@@ -39,6 +39,61 @@ export const skillsReload = () => post<{ reloaded: number; skills: string[] }>(E
 
 // ===== Files =====
 export const filesList = () => get<FileListResp>(Endpoints.filesList)
+
+export const filesUpload = (fd: FormData) =>
+  upload<{ name: string; size: number; url: string }>(Endpoints.filesUpload, fd)
+export const skillExport = (name: string) => get<Blob>(Endpoints.skillExport(name))
+export const scheduleHealth = () => get<{ status: string }>(Endpoints.scheduleHealth)
+
+// 权限引擎（S2，形态无关）
+export interface PermissionDecisionItem {
+  id: number
+  run_id: string | null
+  tool_name: string
+  request: Record<string, unknown>
+  action: string
+  reason: string
+  decided_by: string | null
+  status: string
+  latency_ms: number
+  created_at: string
+  resolved_at: string | null
+}
+export interface PermissionRulesResp {
+  rules: Array<Record<string, unknown>>
+  effective_level: 'readonly' | 'ask' | 'allow'
+}
+export const permissionRules = () => get<PermissionRulesResp>(Endpoints.permissionRules)
+export const permissionRuleSet = (payload: { scope: string; pattern: string; decision: string; risk?: string }) =>
+  put<{ ok: boolean; effective_level: string }>(Endpoints.permissionRules, payload)
+export const permissionRuleDelete = (payload: { scope: string; pattern: string }) =>
+  del<{ ok: boolean }>(Endpoints.permissionRules, payload as never)
+export const permissionDecisions = (params?: { status?: string; run_id?: string }) =>
+  get<{ items: PermissionDecisionItem[] }>(
+    Endpoints.permissionDecisions + (params ? '?' + new URLSearchParams(params as Record<string, string>) : ''),
+  )
+export const permissionResolve = (payload: { decision_id: number; choice: string }) =>
+  post<{ ok: boolean }>(Endpoints.permissionDecisions, payload)
+// 工作空间与产物（S3）
+export interface WorkspaceItem { id: string; name: string; root_path: string; status: string; created_at: string }
+export interface ChangeItem { id: number; path: string; op: string; before_hash: string | null; after_hash: string | null; snapshot_ref: string | null; tool: string; size_before: number | null; size_after: number | null; created_at: string }
+export interface ArtifactItem { id: number; path: string; title: string | null; mime: string | null; kind: string; size: number | null; previewable: boolean; created_at: string }
+export const workspacesList = (includeArchived = false) =>
+  get<{ items: WorkspaceItem[]; current: string | null }>(Endpoints.workspaces + (includeArchived ? '?include_archived=true' : ''))
+export const workspaceCreate = (payload: { name: string; root_path?: string }) =>
+  post<WorkspaceItem>(Endpoints.workspaces, payload)
+export const workspaceSwitch = (id: string) => post<{ ok: boolean; current: string }>(Endpoints.workspaceSwitch(id), {})
+export const workspaceArchive = (id: string) => post<{ ok: boolean }>(Endpoints.workspaceArchive(id), {})
+export const runChanges = (runId: string) => get<{ items: ChangeItem[] }>(Endpoints.runChanges(runId))
+export const runArtifacts = (runId: string) => get<{ items: ArtifactItem[] }>(Endpoints.runArtifacts(runId))
+export const changeDiff = (id: number) => get<{ kind: string; diff?: string; summary?: string; path: string }>(Endpoints.changeDiff(id))
+export const changeRevert = (id: number, workspaceId?: string) =>
+  post<{ reverted: string }>(Endpoints.changeRevert(id), workspaceId ? { workspace_id: workspaceId } : {})
+
+export const permissionSandbox = () =>
+  get<{ level: string; available: boolean; message: string }>(Endpoints.permissionSandbox)
+export const skillResource = (name: string, resourcePath: string) =>
+  get<unknown>(Endpoints.skillResource(name, resourcePath))
 export const deleteFile = (name: string) => del<{ deleted: string }>(Endpoints.file(name))
 
 // ===== MCP =====
@@ -58,8 +113,16 @@ export const ragRetrieval = (req: RagQueryRequest) =>
   post<{ query: string; documents: unknown[]; references: string }>(Endpoints.ragRetrieval, req)
 /** ⚠️ recreate 是 URL query 参数 */
 export const ragIngest = (recreate = false) =>
-  post<{ chunks: number; entities: number; collection: string }>(
-    Endpoints.ragIngest, undefined, { query: { recreate }, timeoutMs: 300_000 })
+  post<{
+    chunks: number
+    entities: number
+    collection: string
+    /** 批次 03：幂等入库统计（新增 / 跳过 / 清理旧版本 / 源文件数） */
+    ingested?: number
+    skipped?: number
+    removed?: number
+    documents?: number
+  }>(Endpoints.ragIngest, undefined, { query: { recreate }, timeoutMs: 300_000 })
 
 // ===== Web Research =====
 export const webResearchStatus = () => get<WebResearchStatusResp>(Endpoints.webResearchStatus)
@@ -126,6 +189,15 @@ export const scheduleRuns = (id: string, page = 1, pageSize = 20) =>
 export const scheduleValidateCron = (cronExpr: string, timezone = 'Asia/Shanghai') =>
   post<{ valid: boolean; error: string | null; next_runs: string[] }>(Endpoints.scheduleValidate, { cron_expr: cronExpr, timezone })
 
+// ===== Desktop（桌面端） =====
+export {
+  desktopStatus, desktopComponents,
+  desktopPreferencesGet, desktopPreferencesUpdate,
+  desktopWorkspaceGet, desktopWorkspaceSet,
+  desktopPermissionsGet, desktopPermissionsSet, desktopPermissionDecision,
+  desktopResumeScan, runCancel, runSteer,
+} from './desktop'
+
 // ===== Skill 管理 =====
 export const skillCreate = (payload: { name: string; description: string; content: string }) =>
   post<SkillMeta>(Endpoints.skillsList, payload)
@@ -186,3 +258,83 @@ export type {
   RunEventPage,
   RunStatus,
 } from './types'
+// 运行中任务查询（S4）：GET /runs?status=running（不新增 /runs/active，见 design/05 §3.4）
+export const runsByStatus = (status: string, pageSize = 20) =>
+  get<{ items: Array<Record<string, unknown>>; total: number }>(
+    `${Endpoints.runsList}?status=${encodeURIComponent(status)}&page_size=${pageSize}`,
+  )
+
+// 上下文经济性与成本（S5）
+export interface RunCostItem {
+  id: number; model: string; provider: string; role: string
+  prompt_tokens: number; completion_tokens: number; cached_tokens: number
+  latency_ms: number; cost: number; price_snapshot: Record<string, number>
+  created_at: string
+}
+export interface RunCostResp {
+  items: RunCostItem[]
+  totals: { llm_calls: number; prompt_tokens: number; completion_tokens: number; estimated_cost: number }
+  percentiles: { p50: number | null; p90: number | null; samples: number }
+  pricing: Array<Record<string, unknown>>
+}
+export const runCost = (runId: string) => get<RunCostResp>(Endpoints.runCost(runId))
+export const costEstimate = (model?: string) =>
+  get<{ percentiles: { p50: number | null; p90: number | null; samples: number }; pricing: Array<Record<string, unknown>> }>(
+    Endpoints.costEstimate + (model ? `?model=${encodeURIComponent(model)}` : ''),
+  )
+export const sessionContext = (id: string) =>
+  get<{ session_id: string; turns: number; window: number; usage: Record<string, number>; thresholds: { compact: number; summary: number } }>(
+    Endpoints.sessionContext(id),
+  )
+export const memoriesList = (scope?: string) =>
+  get<{ items: Array<Record<string, unknown>>; max_injected: number; enabled: boolean }>(
+    Endpoints.memories + (scope ? `?scope=${encodeURIComponent(scope)}` : ''),
+  )
+export const memoryCreate = (payload: { scope: string; name: string; content: string; tags?: string[] }) =>
+  post<Record<string, unknown>>(Endpoints.memories, payload)
+export const memoryDelete = (payload: { scope: string; path: string }) =>
+  request<{ ok: boolean }>(Endpoints.memories, { method: 'DELETE', body: payload })
+
+// 扩展三层与多 Agent（S6）
+export interface RoleItem {
+  id: number; name: string; title: string; identity: string
+  expertise: string[]; boundaries: string[]; workflow: string[]
+  output_style: string; tools: string[]; skills: string[]
+  model_tier: 'light' | 'standard' | 'strong'; builtin: boolean; enabled: boolean
+}
+export const rolesList = () => get<{ items: RoleItem[] }>(Endpoints.roles)
+export const roleCreate = (payload: Partial<RoleItem> & { name: string }) =>
+  post<RoleItem>(Endpoints.roles, payload)
+export const roleUpdate = (id: number, payload: Partial<RoleItem>) =>
+  request<RoleItem>(Endpoints.role(id), { method: 'PATCH', body: payload })
+export const roleDelete = (id: number) => del<{ ok: boolean }>(Endpoints.role(id))
+
+export interface PluginScanResult {
+  level: 'low' | 'medium' | 'high' | 'critical'
+  findings: Array<{ rule: string; level: string; reason: string; path: string }>
+  scanned_files: number; total_bytes: number
+  requires_confirmation: boolean; rejected_by_default: boolean
+}
+export interface PluginItem {
+  id: number; name: string; version: string; status: string
+  scan: Partial<PluginScanResult>; manifest: Record<string, unknown>; installed_at: string | null
+}
+export const pluginsList = () => get<{ items: PluginItem[] }>(Endpoints.plugins)
+export const pluginScan = (path: string) => post<PluginScanResult>(Endpoints.pluginScan, { path })
+export const pluginInstall = (payload: { path?: string; content_b64?: string; confirm?: boolean }) =>
+  post<{ ok: boolean; name: string; version: string; scan: PluginScanResult | null; message: string }>(
+    Endpoints.pluginInstall, payload,
+  )
+export const pluginRollback = (name: string, version: string) =>
+  post<{ ok: boolean; message: string }>(Endpoints.pluginRollback, { name, version })
+
+export interface BoardItem {
+  id: number; board_id: string; title: string; detail: string
+  status: 'pending' | 'ready' | 'running' | 'done' | 'blocked' | 'failed'
+  assignee: string | null; deps: number[]; result: Record<string, unknown>
+}
+export const boardItems = (boardId: string) => get<{ items: BoardItem[] }>(Endpoints.boardItems(boardId))
+export const boardItemCreate = (boardId: string, payload: { title: string; detail?: string; deps?: number[] }) =>
+  post<BoardItem>(Endpoints.boardItems(boardId), payload)
+export const boardItemComplete = (boardId: string, itemId: number, result?: Record<string, unknown>) =>
+  post<{ items: BoardItem[] }>(Endpoints.boardItem(boardId, itemId), { result })

@@ -5,7 +5,7 @@
 
     <div class="actions">
       <el-button @click="refresh" :loading="loading">刷新</el-button>
-      <el-upload :http-request="uploadFile" :show-file-list="false" accept="*/*">
+      <el-upload :http-request="uploadFile" :show-file-list="false" :accept="acceptAttr">
         <el-button type="primary">上传文件</el-button>
       </el-upload>
     </div>
@@ -46,12 +46,16 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage, type UploadRequestOptions } from 'element-plus'
-import { filesList, deleteFile } from '@/api'
+import { filesList, deleteFile, filesUpload } from '@/api'
+import { ALLOWED_UPLOAD_EXTENSIONS, checkUploadFile } from '@/api/upload-policy'
 import type { FileItem } from '@/api/types'
 
 const items = ref<FileItem[]>([])
 const loading = ref(false)
 const activeTab = ref<'all' | 'image' | 'doc' | 'log' | 'other'>('all')
+
+// 文件选择器的 accept 提示（与后端白名单同口径）
+const acceptAttr = ALLOWED_UPLOAD_EXTENSIONS.map((ext) => `.${ext}`).join(',')
 
 onMounted(() => refresh())
 
@@ -88,11 +92,16 @@ async function remove(name: string) {
 }
 
 async function uploadFile(opts: UploadRequestOptions) {
+  // 上传前预检（大小 + 类型）：先给出可读提示，避免把明显不合规的文件发到后端
+  const reason = checkUploadFile(opts.file)
+  if (reason) {
+    ElMessage.error(reason)
+    return
+  }
   const fd = new FormData()
   fd.append('file', opts.file)
   try {
-    const r = await fetch('/api/v1/files/upload', { method: 'POST', body: fd })
-    if (!r.ok) throw new Error(`HTTP ${r.status}`)
+    await filesUpload(fd)
     await refresh()
     ElMessage.success(`已上传`)
   } catch (e: unknown) {

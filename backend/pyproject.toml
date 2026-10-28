@@ -42,9 +42,23 @@ dependencies = [
     "beautifulsoup4>=4.12",
     "lxml>=5.2",
     "setuptools<81",
+    # 数据层与调度（与 requirements.txt 保持一致）
+    "sqlalchemy>=2.0,<2.1",
+    "alembic>=1.13,<2.0",
+    "apscheduler>=3.10,<4.0",
     # 开发 / 测试
     "pytest>=8.0.0",
 ]
 
 [tool.uv]
 package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# 隔离临时目录：避免与其它项目共用系统 basetemp 时互相删除（pytest 会 GC 旧目录）
+addopts = "--basetemp=.pytest_tmp"
+markers = [
+    "unit: 纯函数 / 单类单元测试",
+    "integration: 依赖 DB、调度、子进程的集成测试",
+    "e2e: 端到端测试",
+]
