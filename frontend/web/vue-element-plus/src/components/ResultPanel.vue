@@ -16,7 +16,8 @@
       <ResultArtifacts v-if="activeTab === 'artifacts'" :run-id="runId" />
       <ResultFiles v-else-if="activeTab === 'files'" :run-id="runId" />
       <ResultChanges v-else-if="activeTab === 'changes'" :run-id="runId" :workspace-id="workspaceId" />
-      <div v-else class="browser-placeholder">浏览器视图（自动化任务页面/截图，后续接入）</div>
+      <!-- F-UX-02：浏览器视图有**真实数据源**（浏览器类产物） -->
+      <ResultBrowser v-else-if="activeTab === 'browser'" :run-id="runId" />
     </div>
   </aside>
 </template>
@@ -25,6 +26,7 @@
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
 import ResultArtifacts from './ResultArtifacts.vue'
+import ResultBrowser from './ResultBrowser.vue'
 import ResultChanges from './ResultChanges.vue'
 import ResultFiles from './ResultFiles.vue'
 

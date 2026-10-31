@@ -99,6 +99,7 @@ class SessionService:
         page: int = 1,
         page_size: int = 20,
         include_archived: bool = False,
+        only_trashed: bool = False,
     ) -> tuple[list[SessionOut], int]:
         with db_session() as db:
             stmt = select(SessionRow)
@@ -107,8 +108,21 @@ class SessionService:
                 stmt = stmt.where(SessionRow.mode == "work", SessionRow.plan_first == 1)
             elif mode:
                 stmt = stmt.where(SessionRow.mode == mode)
+            # **W9-12 / AUD2-H14（归档语义与软删维度解耦）**
+            # 此前 ``archived`` 与 ``deleted_at`` 两个维度被**混在一个参数**里：
+            #   - 默认视图：``archived == 0`` **且** ``deleted_at IS NULL``
+            #   - ``include_archived=True``：``deleted_at IS NOT NULL``
+            # → 经 ``update(archived=True)`` 归档但**未删除**的会话
+            #   （``archived=1, deleted_at=NULL``）在**两种视图下都不可见**
+            #   → 用户永久看不到、也删不掉（成为不可见数据）。
+            # 现在：``include_archived`` 的语义是「**包含已归档的**」，
+            # 回收站另由 ``deleted_at`` 独立表达（``only_trashed``）。
             if not include_archived:
                 stmt = stmt.where(SessionRow.archived == 0)
+            if only_trashed:
+                stmt = stmt.where(SessionRow.deleted_at.is_not(None))
+            else:
+                stmt = stmt.where(SessionRow.deleted_at.is_(None))
             total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
             rows = db.scalars(
                 stmt.order_by(SessionRow.updated_at.desc())
@@ -123,9 +137,10 @@ class SessionService:
         message_limit: int = 100,
         before_seq: int | None = None,
     ) -> SessionDetail | None:
+        """取会话详情；**已软删的会话视为不存在**（P3-10 → 404）。"""
         with db_session() as db:
             row = db.get(SessionRow, session_id)
-            if row is None:
+            if row is None or row.deleted_at:
                 return None
             stmt = select(MessageRow).where(MessageRow.session_id == session_id)
             if before_seq is not None:
@@ -169,6 +184,23 @@ class SessionService:
             return _session_to_out(db, row)
 
     def delete(self, session_id: str) -> bool:
+        """**软删除**（P3-10）：写 ``deleted_at`` + ``archived=1``。
+
+        此前是**物理删除**（``messages`` 级联删）→ 无回收站、数据不可恢复。
+        现在消息与 run 记录**保留**，仅从默认列表中隐藏。
+        """
+        with db_session() as db:
+            row = db.get(SessionRow, session_id)
+            if row is None or row.deleted_at:
+                return False
+            row.deleted_at = utc_now()
+            row.archived = 1
+            row.updated_at = utc_now()
+            db.flush()
+            return True
+
+    def purge(self, session_id: str) -> bool:
+        """**永久删除**（管理员用）——真正物理删除会话及其消息。"""
         with db_session() as db:
             row = db.get(SessionRow, session_id)
             if row is None:

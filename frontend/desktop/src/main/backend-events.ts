@@ -73,6 +73,39 @@ export interface EventStreamOptions {
   reconnectDelaysMs?: number[];
 }
 
+/** 单飞重连闸门：同一时刻最多挂**一个**重连定时器。 */
+export interface ReconnectGate {
+  /** 安排一次重连；已有待触发的重连时返回 false（不重复安排）。 */
+  schedule(delayMs: number, task: () => void): boolean;
+  /** 取消待触发的重连。 */
+  cancel(): void;
+  /** 当前是否有待触发的重连。 */
+  pending(): boolean;
+}
+
+export function createReconnectGate(): ReconnectGate {
+  let timer: NodeJS.Timeout | null = null;
+  return {
+    schedule(delayMs: number, task: () => void): boolean {
+      if (timer) return false;
+      timer = setTimeout(() => {
+        timer = null;
+        task();
+      }, delayMs);
+      return true;
+    },
+    cancel(): void {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+    },
+    pending(): boolean {
+      return timer !== null;
+    },
+  };
+}
+
 /** 启动事件流订阅；返回停止函数。 */
 export function startEventStream(opts: EventStreamOptions): () => void {
   const delays = opts.reconnectDelaysMs ?? [1_000, 2_000, 4_000, 8_000];
@@ -80,6 +113,9 @@ export function startEventStream(opts: EventStreamOptions): () => void {
   let attempt = 0;
   let cursor = 0;
   let req: http.ClientRequest | null = null;
+  // **D10**：res / req 两处 error 都会触发重连 → 此前会挂**两个**定时器 →
+  // 两条并发 SSE → 每条事件被投递两遍。用单飞闸门收敛。
+  const gate = createReconnectGate();
 
   const connect = (): void => {
     if (stopped) return;
@@ -104,7 +140,7 @@ export function startEventStream(opts: EventStreamOptions): () => void {
         });
         res.on("end", () => {
           attempt = 0;
-          if (!stopped) setTimeout(connect, delays[0]);
+          if (!stopped) gate.schedule(delays[0], connect);
         });
         res.on("error", () => {
           if (!stopped) scheduleReconnect();
@@ -121,13 +157,14 @@ export function startEventStream(opts: EventStreamOptions): () => void {
     if (stopped) return;
     const delay = delays[Math.min(attempt, delays.length - 1)];
     attempt += 1;
-    setTimeout(connect, delay);
+    gate.schedule(delay, connect);
   };
 
   connect();
 
   return () => {
     stopped = true;
+    gate.cancel();
     if (req) {
       req.destroy();
       req = null;

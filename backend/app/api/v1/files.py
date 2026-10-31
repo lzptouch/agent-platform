@@ -12,6 +12,8 @@ from fastapi.responses import FileResponse
 
 from app.api.deps import get_executor
 from app.core.uploads import (
+    allowed_extensions,
+    ALLOWED_EXTENSIONS,
     check_upload,
     format_bytes,
     max_file_bytes,
@@ -32,6 +34,22 @@ def _safe_path(executor: LocalCodeExecutor, filename: str):
     if not name or name in {".", ".."}:
         raise HTTPException(status_code=400, detail="非法文件名")
     return executor.output_dir / name
+
+
+@router.get("/policy", summary="当前生效的上传策略（白名单 / 大小上限）")
+def upload_policy() -> dict:
+    """**单一真相源**（P4-04）：环境变量覆盖后的实际白名单。
+
+    上传白名单此前有**三份**（前端 `upload-policy.ts`、后端内置清单、
+    环境变量覆盖）→ 前端拦下的扩展名后端可能放行。
+    前端改为运行时拉取本端点（带本地兜底默认值）。
+    """
+    return {
+        "extensions": sorted(allowed_extensions()),
+        "builtin_extensions": sorted(ALLOWED_EXTENSIONS),
+        "max_file_bytes": max_file_bytes(),
+        "max_request_bytes": max_request_bytes(),
+    }
 
 
 @router.get("", summary="列出已生成的文件")

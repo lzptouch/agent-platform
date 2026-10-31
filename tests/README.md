@@ -1,7 +1,7 @@
 # 端到端测试套件（Web + 桌面端）
 
-> 依据：`c:\workspace\practice\测试计划.md`（AI Agent 自动化测试统一提示词模板）**全局头部固定规则** + **模块 A（Web / Playwright）** + **模块 C（桌面端 / Electron）** + **附加专项：稳定性、录屏**。
-> 执行计划见 [`../doc/plan/`](../doc/plan/README.md)；分层与门禁见 [`../doc/design/10-测试与验收策略.md`](../doc/design/10-测试与验收策略.md)。
+> 依据：AI Agent 自动化测试统一提示词模板（已转录进 [`../doc/testing/00-全面测试计划.md`](../doc/testing/00-全面测试计划.md)）**全局头部固定规则** + **模块 A（Web / Playwright）** + **模块 C（桌面端 / Electron）** + **附加专项：稳定性、录屏**。
+> 剩余工作与批次见 [`../doc/plan/`](../doc/plan/README.md)；分层与门禁见 [`../doc/design/10-测试与验收策略.md`](../doc/design/10-测试与验收策略.md)；可执行测试计划见 [`../doc/testing/00-全面测试计划.md`](../doc/testing/00-全面测试计划.md)。
 > 整理日期：2026-10-26　最近更新：2026-10-28（批次 01 交付）　对应基线：commit `c4dac22`
 
 ---

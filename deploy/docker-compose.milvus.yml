@@ -6,6 +6,12 @@
 #
 #   docker compose -f docker-compose.yml -f deploy/docker-compose.milvus.yml up -d
 #
+# ⚠ 启用本覆盖文件前**必须**先导出凭据（否则 compose 启动即失败，不再静默使用默认口令）：
+#   export MINIO_ROOT_USER=agent
+#   export MINIO_ROOT_PASSWORD=<随机长串>
+#   export ETCD_ROOT_USER=agent
+#   export ETCD_ROOT_PASSWORD=<随机长串>
+#
 # 它会做两件事：
 #   1) 拉起 etcd（元数据存储）+ minio（对象存储）+ milvus standalone（向量引擎）
 #   2) 把 backend 的 MILVUS_DB_PATH 切到 http://milvus:19530
@@ -23,11 +29,15 @@ services:
     container_name: agent-etcd
     restart: unless-stopped
     environment:
+      # 禁止「无认证访问」：默认不再允许 ALLOW_NONE_AUTHENTICATION
+      ALLOW_NONE_AUTHENTICATION: "${ALLOW_NONE_AUTHENTICATION:-no}"
+      # etcd 凭据必须由环境注入（无默认口令）；缺变量 → compose 启动即失败
+      ETCD_ROOT_USER: "${ETCD_ROOT_USER:?必须显式设置 ETCD_ROOT_USER（禁止默认凭据）}"
+      ETCD_ROOT_PASSWORD: "${ETCD_ROOT_PASSWORD:?必须显式设置 ETCD_ROOT_PASSWORD（禁止默认凭据）}"
       ETCD_AUTO_COMPACTION_MODE: revision
       ETCD_AUTO_COMPACTION_RETENTION: "1000"
       ETCD_QUOTA_BACKEND_BYTES: "4294967296"
       ETCD_SNAPSHOT_COUNT: "50000"
-      ALLOW_NONE_AUTHENTICATION: "yes"
       ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379
       ETCD_ADVERTISE_CLIENT_URLS: http://milvus-etcd:2379
     volumes:
@@ -50,8 +60,8 @@ services:
     container_name: agent-minio
     restart: unless-stopped
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_ROOT_USER: "${MINIO_ROOT_USER:?必须显式设置 MINIO_ROOT_USER（禁止 minioadmin 之类的默认凭据）}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:?必须显式设置 MINIO_ROOT_PASSWORD（禁止 minioadmin 之类的默认凭据）}"
     volumes:
       - minio-data:/minio_data
     command: minio server /minio_data --console-address ":9001"
@@ -73,8 +83,9 @@ services:
     environment:
       ETCD_ENDPOINTS: milvus-etcd:2379
       MINIO_ADDRESS: milvus-minio:9000
-      MINIO_ACCESS_KEY_ID: minioadmin
-      MINIO_SECRET_ACCESS_KEY: minioadmin
+      # 与 minio 的 root 账号一致（同一组环境变量，不出现第二份明文）
+      MINIO_ACCESS_KEY_ID: "${MINIO_ROOT_USER:?必须显式设置 MINIO_ROOT_USER（与 milvus-minio 保持一致）}"
+      MINIO_SECRET_ACCESS_KEY: "${MINIO_ROOT_PASSWORD:?必须显式设置 MINIO_ROOT_PASSWORD（与 milvus-minio 保持一致）}"
     depends_on:
       milvus-etcd:
         condition: service_healthy

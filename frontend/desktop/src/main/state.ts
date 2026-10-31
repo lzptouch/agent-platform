@@ -10,7 +10,10 @@ type Listener = (state: BackendState) => void;
 class BackendStateMachine {
   private state: BackendState = "idle";
   private listeners = new Set<Listener>();
+  /** 距上次「就绪」以来的重启次数（诊断用；markReady 时清零）。 */
   private restarts = 0;
+  /** 连续失败次数（**熔断依据**）：握手成功**不**清零。 */
+  private consecutiveFailures = 0;
   private lastError: string | null = null;
   private port: number | null = null;
   private pid: number | null = null;
@@ -35,17 +38,30 @@ class BackendStateMachine {
     this.pid = pid;
     this.restarts = 0;
     this.lastError = null;
+    // **D7**：注意**不**清 consecutiveFailures —— 后端「起来 → 秒崩」时
+    // 每次握手都成功，清零等于熔断永不触发。
     this.set("ready");
   }
 
   markCrashed(error: string | null): void {
     this.lastError = error;
     this.restarts += 1;
+    this.consecutiveFailures += 1;
     this.set("crashed");
   }
 
   noteRestart(): void {
     this.restarts += 1;
+  }
+
+  /** 连续失败计数（熔断依据）。 */
+  consecutiveFailureCount(): number {
+    return this.consecutiveFailures;
+  }
+
+  /** 后端持续健康足够久 → 复位连续失败计数（熔断重新武装）。 */
+  resetConsecutiveFailures(): void {
+    this.consecutiveFailures = 0;
   }
 
   status(): BackendStatus {
@@ -54,6 +70,7 @@ class BackendStateMachine {
       port: this.port,
       pid: this.pid,
       restarts: this.restarts,
+      consecutiveFailures: this.consecutiveFailures,
       lastError: this.lastError,
     };
   }

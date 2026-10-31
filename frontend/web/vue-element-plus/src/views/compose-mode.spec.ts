@@ -116,6 +116,24 @@ describe('速记形态（批次 02：?compose=1）', () => {
     })
     await w.vm.$nextTick()
 
-    expect(w.find('.side-nav').exists()).toBe(false)
+    // **W11-01**：此前断言的是 `.side-nav`，而 `SideNav.vue` 的根 class 是
+    // **`.sidenav`** → 选择器从未匹配 → 即使侧栏真的渲染出来该用例也会通过。
+    expect(w.find('.sidenav').exists()).toBe(false)
+  })
+
+  it('普通形态（compose 不为 1）下侧栏**存在**（正向对照）', async () => {
+    // **W11-01**：补一条**正向**断言 —— 证明上一条「不出现」不是因为
+    // 组件根本没渲染（无 RouterLink stub）而恒真。
+    currentQuery = {}
+    const w = mount(WorkspaceLayout, {
+      ...globalPlugins,
+      global: {
+        ...globalPlugins.global,
+        plugins: [ElementPlus],
+        stubs: { RouterView: true, 'router-view': true },
+      },
+    })
+    await w.vm.$nextTick()
+    expect(w.find('.sidenav').exists()).toBe(true)
   })
 })

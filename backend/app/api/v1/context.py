@@ -95,7 +95,11 @@ def create_memory(payload: dict = Body(default_factory=dict)) -> dict:
     tags = payload.get("tags") or []
     if not isinstance(tags, list):
         raise HTTPException(status_code=422, detail="tags 必须是数组")
-    item = mem.write_memory(scope, name, content, tags=[str(t) for t in tags])
+    # **W0-02 / AUD-C08**：``name`` 越界（``../``）会被服务层拒绝 → 映射为 422
+    try:
+        item = mem.write_memory(scope, name, content, tags=[str(t) for t in tags])
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return item.as_dict()
 
 
@@ -105,7 +109,14 @@ def delete_memory(payload: dict = Body(default_factory=dict)) -> dict:
     path = str(payload.get("path", "")).strip()
     if not path:
         raise HTTPException(status_code=422, detail="缺少 path")
-    return {"ok": mem.delete_memory(scope, path)}
+    # **W0-02 / AUD-C07**：``scope`` 必须校验（此前未知 scope → 500）
+    # 且路径必须落在该作用域的记忆根内（越界 → 422）。
+    if scope not in mem.SCOPES:
+        raise HTTPException(status_code=422, detail=f"scope 必须是 {'/'.join(mem.SCOPES)}")
+    try:
+        return {"ok": mem.delete_memory(scope, path)}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.post("/memories/clear", summary="清空某作用域的记忆")

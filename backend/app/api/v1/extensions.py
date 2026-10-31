@@ -1,10 +1,13 @@
 """扩展层 API（S6）：角色 / 插件 / 黑板 / 消息。"""
 from __future__ import annotations
 
+import logging
+import zipfile
 from pathlib import Path
 
-from fastapi import APIRouter, Body, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 
+from app.api.deps import get_orchestration_service
 from app.core.config import settings
 from app.services.chains.skills import scanner
 from app.services.chains.skills.plugins import PluginError, PluginManager
@@ -12,7 +15,41 @@ from app.services.exec.team.blackboard import BoardError, BlackboardService
 from app.services.exec.team.messaging import MessageService
 from app.services.exec.team.roles import RoleError, get_role_service
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(tags=["extensions"])
+
+
+# --------------------------------------------------------------------------- #
+# 多 Agent 编排（P2-09 路 B）
+# --------------------------------------------------------------------------- #
+@router.post("/orchestrate", summary="多 Agent 编排（parallel / sequential / review）")
+def orchestrate(
+    payload: dict = Body(default_factory=dict),
+    svc=Depends(get_orchestration_service),
+) -> dict:
+    """把整体任务拆给多个子 Agent 执行。
+
+    - ``subtasks[].deps`` 用**子任务下标**（黑板模式下自动翻译成黑板项 id）；
+    - 传 ``board_id`` 时子任务登记为黑板任务项，状态随执行流转
+      （pending → running → done/failed），依赖未完成的项不会被启动；
+    - 响应里的 ``main_context`` **只含压缩通知**——子任务原始推理不进主上下文。
+    """
+    try:
+        return svc.orchestrate(
+            task=str(payload.get("task") or ""),
+            subtasks=list(payload.get("subtasks") or []),
+            mode=str(payload.get("mode") or "parallel"),
+            board_id=(str(payload["board_id"]) if payload.get("board_id") else None),
+            reviewer=str(payload.get("reviewer") or "reviewer"),
+            model=(str(payload["model"]) if payload.get("model") else None),
+            agent_mode=str(payload.get("agent_mode") or "work"),
+            skills=(list(payload["skills"]) if payload.get("skills") else None),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 # --------------------------------------------------------------------------- #
@@ -95,8 +132,21 @@ def scan_plugin(payload: dict = Body(default_factory=dict)) -> dict:
     }
 
 
+def _reload_skills(request: Request) -> None:
+    """P2-22：插件安装后重载技能（当前进程立即生效，无需重启）。"""
+    try:
+        manager = getattr(request.app.state, "skill_manager", None)
+        if manager is None:
+            return
+        manager.reload()
+    except Exception as exc:  # noqa: BLE001 - reload 失败不应让安装回滚
+        logger.warning("技能重载失败（新技能需重启后生效）: %s", exc)
+
 @router.post("/plugins/install", summary="安装插件包（原子切换）")
-def install_plugin(payload: dict = Body(default_factory=dict)) -> dict:
+def install_plugin(
+    request: Request,
+    payload: dict = Body(default_factory=dict),
+) -> dict:
     """从 zip 字节安装（``content_b64``）或从本地目录安装（``path``）。"""
     import base64
     import shutil
@@ -114,7 +164,14 @@ def install_plugin(payload: dict = Body(default_factory=dict)) -> dict:
             data = base64.b64decode(str(content_b64))
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(status_code=422, detail=f"content_b64 解码失败: {exc}") from exc
-        result = mgr.install_from_zip(data, confirm=confirm, skills_dir=skills_dir)
+        try:
+            result = mgr.install_from_zip(data, confirm=confirm, skills_dir=skills_dir)
+        except zipfile.BadZipFile as exc:
+            raise HTTPException(status_code=422, detail=f"不是合法的 zip 包: {exc}") from exc
+        except PluginError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        # P2-22：安装成功后**当前进程**立即加载新技能（此前需重启进程）。
+        _reload_skills(request)
         return result.as_dict()
 
     path = str(payload.get("path", "")).strip()
@@ -173,7 +230,8 @@ def create_board_item(board_id: str, payload: dict = Body(default_factory=dict))
 def complete_board_item(board_id: str, item_id: int, payload: dict = Body(default_factory=dict)) -> dict:
     svc = BlackboardService()
     try:
-        items = svc.complete(item_id, result=payload.get("result") or {})
+        # **W0-07**：传入 board_id → 服务层按板精确匹配（防跨板越权）
+        items = svc.complete(item_id, result=payload.get("result") or {}, board_id=board_id)
     except BoardError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"items": [i.as_dict() for i in items]}

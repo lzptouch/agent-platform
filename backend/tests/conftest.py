@@ -21,7 +21,6 @@ _TMP_DIR = Path(tempfile.mkdtemp(prefix="agent-test-"))
 @pytest.fixture(scope="session", autouse=True)
 def _setup_db():
     settings.scheduler_enabled = False
-    settings.save_chat_log = False
     from app.db.base import configure_engine, init_db, reset_engine
 
     configure_engine(f"sqlite:///{_TMP_DIR / 'test.db'}")
@@ -34,6 +33,20 @@ def _setup_db():
 
 @pytest.fixture(autouse=True)
 def _clean_tables():
+    """每个用例后清空所有表**并复位进程级单例**。
+
+    **W11-02 / AUD2-L22**：此前只清表，**不复位任何进程级单例** ——
+    ``PermissionService.instance()``（规则缓存 + ``hit_count``）、
+    ``MCPManager``（``_config_servers`` / ``_enabled`` / ``_conn_status`` / ``_tools_cache``）、
+    ``WorkspaceService.instance()``、``current_run_context``、
+    ``app.state.agent_service._client`` 全部**跨用例残留** →
+    **测试结果依赖文件执行顺序**。
+
+    典型症状：``test_mcp_sse_config.py`` 自己写了一个局部 ``_isolate_manager_config``
+    来补这个洞（说明问题被感知但没在 conftest 根治）；``test_new_chains.py`` 断言
+    内置 MCP server 数量为 3，而 ``MCPManager.__init__`` 启动即读**真实**
+    ``~/.agent/mcp.json`` → 在配置过 MCP 的机器上直接失败。
+    """
     yield
     from sqlalchemy import text
 
@@ -43,6 +56,55 @@ def _clean_tables():
     with db_session() as db:
         for table in reversed(Base.metadata.sorted_tables):
             db.execute(text(f"DELETE FROM {table.name}"))
+
+    # ---- 复位进程级单例 ----
+    # PermissionService：规则缓存 + hit_count 跨用例累积
+    try:
+        from app.services.security.permissions import PermissionService
+
+        PermissionService.reset_for_test()
+    except Exception:  # noqa: BLE001
+        pass
+
+    # WorkspaceService：当前工作空间跨用例残留
+    try:
+        from app.services.workspace.service import WorkspaceService
+
+        WorkspaceService.reset_for_test()
+    except Exception:  # noqa: BLE001
+        pass
+
+    # MCPManager：配置 / 启用集合 / 连接状态 / 工具缓存
+    try:
+        import app.services.mcp_manager as mcp_mod
+
+        mgr = mcp_mod._manager
+        if mgr is not None:
+            mgr._config_servers = {}
+            mgr._config_errors = []
+            mgr._enabled = set()
+            mgr._conn_status = {}
+            mgr._tools_cache = {}
+    except Exception:  # noqa: BLE001
+        pass
+
+    # run 上下文（contextvar）
+    try:
+        from app.services.workspace.service import current_run_context
+
+        current_run_context.set(None)
+    except Exception:  # noqa: BLE001
+        pass
+
+    # AgentService 的假客户端（部分用例直接赋值 `svc._client = fake`）
+    try:
+        from app.main import app as fastapi_app
+
+        svc = getattr(fastapi_app.state, "agent_service", None)
+        if svc is not None:
+            svc._client = None
+    except Exception:  # noqa: BLE001
+        pass
 
 
 # ---------------------------------------------------------------------- #
@@ -123,3 +185,32 @@ def fake_client_factory():
         return client, client.chat.completions.calls
 
     return _factory
+
+
+# --------------------------------------------------------------------------- #
+# P5-03 · 分层 marker 自动打标（与 tests/conftest.py 同源）
+# --------------------------------------------------------------------------- #
+#: 文件名特征 → 标记
+_NAME_MARKERS: list[tuple[str, str]] = [
+    ("live_", "real_llm"),
+    ("real_llm", "real_llm"),
+    ("research", "slow"),
+    ("p2_batch", "slow"),
+    ("p3_batch", "slow"),
+    ("smoke_", "integration"),
+]
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """按文件名给用例打标（兜底：保证**无未打标用例**）。"""
+    for item in items:
+        name = Path(str(item.fspath)).stem.lower()
+        markers = {"integration"}
+        for token, marker in _NAME_MARKERS:
+            if token in name:
+                markers.add(marker)
+        if "test_p1_batch" in name or "test_p2_batch" in name:
+            markers.discard("integration")
+            markers.add("unit")
+        for marker in sorted(markers):
+            item.add_marker(getattr(pytest.mark, marker))

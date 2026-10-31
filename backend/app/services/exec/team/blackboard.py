@@ -244,12 +244,22 @@ class BlackboardService:
             item = _row_to_item(row)
         return item
 
-    def complete(self, item_id: int, result: dict | None = None) -> list[BoardItem]:
-        """完成一项并**事件驱动重算**（不轮询）。"""
+    def complete(
+        self, item_id: int, result: dict | None = None, board_id: str | None = None,
+    ) -> list[BoardItem]:
+        """完成一项并**事件驱动重算**（不轮询）。
+
+        **W0-07 / AUD-H17（跨板越权）**：此前**只按 item_id 查行**，
+        **完全不校验该项是否属于 URL 中的 board_id** →
+        对 A 板的 item 调用 ``/boards/B/items/{id}/complete`` 会**完成 A 板的项**
+        并返回 A 板的全量 items。现在按 ``board_id`` 精确匹配，不匹配即报错。
+        """
         with db_session() as db:
             row = db.get(BoardItemRow, item_id)
             if row is None:
                 raise BoardError(f"任务项不存在: {item_id}")
+            if board_id is not None and row.board_id != board_id:
+                raise BoardError(f"任务项不属于该黑板: item={item_id} board={board_id}")
             row.status = "done"
             row.result_json = json.dumps(result or {}, ensure_ascii=False)
             row.updated_at = utc_now()

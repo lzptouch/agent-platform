@@ -18,7 +18,9 @@
           <div class="card-head">
             <div>
               <strong>{{ s.name }}</strong>
-              <el-tag class="ml" :type="statusType(s.status)" size="small">{{ s.status }}</el-tag>
+              <el-tag class="ml" :type="statusType(s.status)" size="small">
+              {{ statusLabel(s.status) }}</el-tag>
+              <span v-if="s.reason" class="muted reason">{{ s.reason }}</span>
             </div>
             <div class="ops">
               <el-button size="small" @click="start(s.name)" :loading="starting === s.name">启动</el-button>
@@ -120,10 +122,26 @@ async function loadDetail(name: string) {
   }
 }
 
+/**
+ * P4-11：状态灯反映**真实连接状态**（后端返回
+ * ``connected / disconnected / error / disabled`` + 可读 ``reason``）。
+ * 此前只有 ready/disabled 两态，与实际连接无关。
+ */
 function statusType(s: string): '' | 'success' | 'warning' | 'danger' {
-  if (s === 'ready') return 'success'
+  if (s === 'connected' || s === 'ready') return 'success'
   if (s === 'disabled') return 'warning'
+  if (s === 'disconnected') return 'warning'
   return 'danger'
+}
+
+/** 状态文案（列表页即可见，不必进详情页）。 */
+function statusLabel(s: string): string {
+  if (s === 'connected') return '已连接'
+  if (s === 'disconnected') return '未连接'
+  if (s === 'error') return '连接失败'
+  if (s === 'disabled') return '未启用'
+  if (s === 'ready') return '就绪'
+  return s
 }
 
 async function start(name: string) {

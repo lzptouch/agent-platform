@@ -65,6 +65,8 @@ def run_research_task(
             task_text,
             max_workers=config.get("max_workers"),
             on_progress=on_progress,
+            # P3-06：写阶段 checkpoint（重启后可续跑）
+            task_id=task_id,
             config_overrides={
                 "max_iterations": config.get("max_iterations"),
                 "quality_threshold": config.get("quality_threshold"),

@@ -84,34 +84,44 @@ def decrypt_fragment(text: str) -> str:
     return text
 
 
-def process(text: str, *, policy: str = "default") -> dict:
-    """扫描并按规则处置文本。
+def process(text: str, *, policy: str = "encrypt") -> dict:
+    """扫描并按**策略**处置文本。
 
     返回 ``{action, processed, hits}``：
     - ``action``：allow / allow_and_encrypt / deny；
     - ``processed``：处置后的文本（加密片段已替换）；
     - ``hits``：命中的敏感片段（脱敏后的摘要，不含原文）。
+
+    **P2-07**：此前 ``policy`` 参数**形同虚设**（分支固定为「高置信 deny、低置信加密」），
+    与设计要求的三档处置（允许 / 允许并加密 / 禁止）对不上。现按策略驱动：
+
+    - ``allow``：只记录命中，**不改内容**；
+    - ``encrypt``：低/中置信片段加密（密文参与上下文，输出时用 :func:`restore` 还原），
+      但**高置信（私钥 / 高熵凭证）一律拒绝**——密钥类内容不能靠加密蒙混过关；
+    - ``deny``：任何命中都拒绝（由调用方决定是拒写还是拒发）。
     """
     hits = scan(text)
     if not hits:
         return {"action": "allow", "processed": text, "hits": []}
 
-    if any(h.confidence == "high" for h in hits):
-        return {
-            "action": "deny",
-            "processed": text,
-            "hits": [{"kind": h.kind, "confidence": h.confidence, "at": h.start} for h in hits],
-        }
+    summary = [{"kind": h.kind, "confidence": h.confidence, "at": h.start} for h in hits]
+    policy = (policy or "encrypt").lower()
 
-    # 低置信 → 加密参与上下文
+    if policy == "allow":
+        return {"action": "allow", "processed": text, "hits": summary}
+
+    if policy == "deny":
+        return {"action": "deny", "processed": text, "hits": summary}
+
+    # encrypt：高置信（私钥 / 高熵凭证）一律拒绝
+    if any(h.confidence == "high" for h in hits):
+        return {"action": "deny", "processed": text, "hits": summary}
+
+    # encrypt：全部命中片段加密（密文参与上下文，输出时还原）
     processed = text
     for h in sorted(hits, key=lambda x: x.start, reverse=True):
         processed = processed[: h.start] + encrypt_fragment(h.matched) + processed[h.end :]
-    return {
-        "action": "allow_and_encrypt",
-        "processed": processed,
-        "hits": [{"kind": h.kind, "confidence": h.confidence, "at": h.start} for h in hits],
-    }
+    return {"action": "allow_and_encrypt", "processed": processed, "hits": summary}
 
 
 def restore(text: str) -> str:

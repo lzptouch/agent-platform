@@ -14,23 +14,24 @@
  */
 import { autoUpdater } from "electron-updater";
 import { app } from "electron";
-import fs from "node:fs";
-import path from "node:path";
-
-import type { UpdateInfo } from "../shared/types";
+import type { Result, UpdateInfo } from "../shared/types";
 
 let available: UpdateInfo | null = null;
+/** 更新器是否已真正启用（setupUpdater 通过且存在发布通道）。 */
+let initialized = false;
+
+/**
+ * 发布通道开关（**构建期常量**）。
+ *
+ * **D13**：此前实现是在**运行时**读 `electron-builder.yml` 判断有没有 `publish:` 段，
+ * 但该文件**不在** electron-builder 的 `files:` 白名单里 → 打包后位于 asar 内
+ * 根本读不到 → `publishConfigured()` 恒为 false。改为「构建期常量 + app.isPackaged」。
+ */
+const PUBLISH_CHANNEL_ENABLED = false;
 
 /** 是否启用了自动更新（有发布通道才算启用）。""" */
 function publishConfigured(): boolean {
-  try {
-    // __dirname 在打包态指向 asar 内的 dist-main；向上两级到应用根
-    const builderYml = path.join(__dirname, "..", "..", "electron-builder.yml");
-    const text = fs.readFileSync(builderYml, "utf-8");
-    return /^publish\s*:/m.test(text);
-  } catch {
-    return false;
-  }
+  return app.isPackaged && PUBLISH_CHANNEL_ENABLED;
 }
 
 /** 自动更新是否在本期范围（签名 + 发布通道都齐备才为真）。 */
@@ -45,6 +46,7 @@ export function setupUpdater(onAvailable?: (info: UpdateInfo) => void): void {
     console.warn("[updater] 自动更新未启用：publish 段为空（无签名证书与发布通道）。");
     return;
   }
+  initialized = true;
   autoUpdater.autoDownload = true;
   autoUpdater.on("update-available", (info) => {
     available = {
@@ -67,6 +69,26 @@ export function checkForUpdates(): UpdateInfo | null {
   return available;
 }
 
-export function restartIntoUpdate(): void {
-  autoUpdater.quitAndInstall();
+/**
+ * 重启并安装更新；未初始化 / 失败时返回**结构化失败**而不是抛异常。
+ *
+ * **D13**：此前直接 `autoUpdater.quitAndInstall()`，未初始化时 electron-updater
+ * 会**同步抛错** → 冒泡到 IPC → 渲染进程侧 unhandled rejection。
+ */
+export function restartIntoUpdate(): Result<{ ok: boolean }> {
+  if (!initialized) {
+    return {
+      ok: false,
+      error: { code: "E_UPDATER_NOT_READY", message: "自动更新未启用（无发布通道）" },
+    };
+  }
+  try {
+    autoUpdater.quitAndInstall();
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      error: { code: "E_UPDATER_FAILED", message: `安装更新失败：${String(err)}` },
+    };
+  }
 }

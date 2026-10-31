@@ -83,11 +83,20 @@ export function getPaths(): Paths {
   return cached;
 }
 
-/** 后端可执行文件：打包态 = runtime/python.exe，开发态 = 仓库 venv。 */
+/** 后端可执行文件：打包态 = runtime 内的解释器，开发态 = 仓库 venv。 */
 export function resolvePython(): string {
   const { installDir } = getPaths();
   if (app.isPackaged) {
-    return path.join(installDir, "runtime", "python.exe");
+    // 打包产物的运行时布局**随平台而变**（见 scripts/stage-runtime.mjs）：
+    //   Windows → runtime/python.exe
+    //   POSIX   → runtime/bin/python3
+    // 早前这里硬编码 python.exe，macOS/Linux 打包态侧车必然 spawn 失败（ENOENT），
+    // 而 spawn 的 error 只进了握手 Promise，没人订阅 → **完全静默**。
+    const win = path.join(installDir, "runtime", "python.exe");
+    const nix = path.join(installDir, "runtime", "bin", "python3");
+    if (fs.existsSync(win)) return win;
+    if (fs.existsSync(nix)) return nix;
+    return process.platform === "win32" ? win : nix;
   }
   // 开发态：优先 backend/.venv
   const repoRoot = repoRootOf(installDir);

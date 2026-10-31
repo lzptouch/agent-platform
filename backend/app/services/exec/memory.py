@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import json
+import re
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -59,6 +60,31 @@ def memory_root(scope: str) -> Path:
     if scope == "project":
         return Path(get_workspace_dir()) / "memory"
     raise ValueError(f"未知记忆作用域: {scope}")
+
+
+#: 记忆名白名单（只允许字母/数字/点/下划线/短横线）
+_SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+
+
+def resolve_in_scope(scope: str, path: str) -> Path:
+    """把用户给的路径限制在 ``memory_root(scope)`` **之内**。
+
+    **W0-02 / AUD-C07 / AUD-C08（任意文件读写删）**
+
+    此前 ``write_memory`` 的 ``root / name`` 未过滤 ``/`` 与 ``..``，
+    ``delete_memory`` 的 ``Path(path).unlink()`` **完全没有边界校验**
+    → ``POST /memories {"name":"../../../../tmp/x"}`` 可写出工作区外的文件，
+    ``DELETE /memories {"path":"/etc/passwd"}`` 可**删除任意文件**。
+    （默认部署下 ``AGENT_API_KEY`` 未配置 = **无鉴权** → 可被直接利用。）
+
+    现在：越界一律抛 ``ValueError``（由 API 层映射为 422）。
+    """
+    root = memory_root(scope).resolve()
+    p = Path(path).expanduser()
+    p = (p if p.is_absolute() else root / p).resolve()
+    if not p.is_relative_to(root):
+        raise ValueError(f"路径超出记忆根（{scope}）: {path}")
+    return p
 
 
 def _iter_files(scope: str) -> list[Path]:
@@ -162,8 +188,14 @@ def write_memory(scope: str, name: str, content: str, *, tags: list[str] | None 
     """写入一条记忆并增量刷新索引。"""
     root = memory_root(scope)
     root.mkdir(parents=True, exist_ok=True)
-    safe = name if name.endswith(".md") else f"{name}.md"
-    path = root / safe
+    stem = name[:-3] if name.endswith(".md") else name
+    if not _SAFE_NAME.match(stem):
+        # **W0-02**：记忆名必须是**安全标识符**（否则 ``../`` 可越界写出文件）
+        raise ValueError(f"记忆名非法（只允许字母/数字/点/下划线/短横线）: {name!r}")
+    safe = f"{stem}.md"
+    path = (root / safe).resolve()
+    if not path.is_relative_to(root.resolve()):
+        raise ValueError(f"路径超出记忆根（{scope}）: {name!r}")
     header = ""
     if tags:
         header = "---\ntags: " + json.dumps(tags, ensure_ascii=False) + "\n---\n\n"
@@ -174,8 +206,12 @@ def write_memory(scope: str, name: str, content: str, *, tags: list[str] | None 
 
 
 def delete_memory(scope: str, path: str) -> bool:
-    """删除一条记忆（文件 + 索引）。"""
-    p = Path(path)
+    """删除一条记忆（文件 + 索引）。
+
+    **W0-02 / AUD-C07**：路径必须落在本作用域的记忆根内
+    （此前 ``Path(path).unlink()`` **无任何边界校验** → 可删任意文件）。
+    """
+    p = resolve_in_scope(scope, path)
     if p.exists():
         try:
             p.unlink()

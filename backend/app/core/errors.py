@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+import re
 import uuid
 from contextvars import ContextVar
 from typing import Any
@@ -85,14 +86,41 @@ def new_request_id() -> str:
     return uuid.uuid4().hex[:16]
 
 
+#: 允许出现在 request id 中的字符（其余一律剔除）
+_RID_SAFE = re.compile(r"[^A-Za-z0-9._-]")
+#: request id 最大长度
+_RID_MAX_LEN = 64
+
+
 def set_request_id(value: str | None) -> str:
-    rid = value or new_request_id()
+    """设置（并返回）当前请求的 id。
+
+    **W9-14 / AUD2-M27（客户端可控的 request id → 日志/响应头注入）**：
+    此前客户端提供的 ``X-Request-ID`` 被**原样采信**并回写到响应头与每一条 JSON 日志
+    → 可注入任意长字符串（含换行 / 控制字符）→ **日志注入**，
+    极端情况下引发响应头注入。
+
+    现在：**限长 64 + 只保留 ``[A-Za-z0-9._-]``**；非法则**重新生成**。
+    """
+    rid = (value or "").strip()
+    rid = _RID_SAFE.sub("", rid)[:_RID_MAX_LEN]
+    if not rid:
+        rid = new_request_id()
     _request_id.set(rid)
     return rid
 
 
 def get_request_id() -> str:
-    return _request_id.get() or new_request_id()
+    """取当前请求 id。
+
+    **AUD2-L04**：此前无值时返回**新的随机 id** 却**不写回 ContextVar**
+    → 同一请求内两次调用得到**不同** id → 错误体与响应头 / 日志里的 id 对不上。
+    """
+    rid = _request_id.get()
+    if not rid:
+        rid = new_request_id()
+        _request_id.set(rid)
+    return rid
 
 
 # --------------------------------------------------------------------------- #

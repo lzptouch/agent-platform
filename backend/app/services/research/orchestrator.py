@@ -18,27 +18,48 @@ Orchestrator - 研究任务协调者 (Lead Agent)
 """
 
 import json
+import logging
 import time
+from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Optional, Callable, Literal
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from app.services.research.llm_client import LLMResponse, get_llm_client
 from app.services.research.utils import extract_json
+
+logger = logging.getLogger(__name__)
 from app.services.research.prompts import (
     ORCHESTRATOR_SYSTEM_PROMPT,
     TASK_DECOMPOSITION_PROMPT,
     SYNTHESIS_PROMPT,
     QUALITY_CHECK_PROMPT,
+    FACT_CHECK_PROMPT,
     GAP_ANALYSIS_PROMPT,
     REPORT_REFINEMENT_PROMPT,
     DIMINISHING_RETURNS_CHECK_PROMPT,
-    PARALLEL_TASK_COORDINATION_PROMPT,
 )
+from app.core.config import settings
 from app.services.research.research_config import AGENT_CONFIG
 
 
 # ==================== 数据结构 ====================
+
+def _asdict_safe(obj) -> dict | None:
+    """dataclass → dict（checkpoint 需要 JSON 可序列化）。"""
+    if obj is None:
+        return None
+    try:
+        from dataclasses import asdict, is_dataclass
+
+        if is_dataclass(obj):
+            return asdict(obj)
+    except Exception:  # noqa: BLE001
+        pass
+    if isinstance(obj, dict):
+        return obj
+    return {"repr": str(obj)}
+
 
 @dataclass
 class SubTask:
@@ -423,7 +444,13 @@ class Orchestrator:
 
         result = extract_json(response.content)
         if not result:
-            result = {"overall_score": 70, "note": "质量检查结果解析失败"}
+            # P2-04：**解析失败按 0 分计**——此前给 70 分会让「结果无法解析」
+            # 被当成「质量良好」，直接抬高迭代通过判定（虚高）。
+            result = {
+                "overall_score": 0,
+                "note": "质量检查结果解析失败（按 0 分计，不虚高）",
+                "parse_failed": True,
+            }
 
         self._emit_progress("quality_checked", {
             "score": result.get("overall_score", 0),
@@ -431,6 +458,39 @@ class Orchestrator:
             "revision_priority": result.get("revision_priority", "low"),
         })
 
+        return result
+
+    def fact_check(self, information: str, sources: list[str] | str = "") -> dict:
+        """事实核查（**P2-04**：此前 ``FACT_CHECK_PROMPT`` 写好但**零引用**）。
+
+        返回 ``{verified, issues, confidence, error}``；解析失败按「未验证」处理。
+        """
+        self._emit_progress("fact_checking", {})
+        src_text = "\n".join(sources) if isinstance(sources, list) else str(sources or "")
+        prompt = FACT_CHECK_PROMPT.format(
+            information=information,
+            sources=src_text or "（未提供来源）",
+        )
+        response = self.llm.chat(
+            prompt=prompt,
+            system_prompt=ORCHESTRATOR_SYSTEM_PROMPT,
+            temperature=0.1,
+        )
+        if not response.success:
+            return {"verified": False, "issues": [], "confidence": 0.0, "error": response.error_msg}
+        result = extract_json(response.content)
+        if not result:
+            return {
+                "verified": False,
+                "issues": [],
+                "confidence": 0.0,
+                "note": "事实核查结果解析失败",
+                "parse_failed": True,
+            }
+        self._emit_progress("fact_checked", {
+            "verified": result.get("verified", False),
+            "issues": len(result.get("issues", []) or []),
+        })
         return result
 
     def check_diminishing_returns(
@@ -672,7 +732,63 @@ class Orchestrator:
 
         return response.content
 
-    def run(self, task: str) -> ResearchState:
+    # ------------------------------------------------------------------ #
+    # 阶段级 checkpoint（P3-06）
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def checkpoint_path(task_id: str) -> Path:
+        """某个研究任务的 checkpoint 文件路径。"""
+        from app.core.config import settings
+
+        base = Path(settings.research_output_abs) / str(task_id)
+        return base / "checkpoint.json"
+
+    def write_checkpoint(self, task_id: str, stage: str, state: ResearchState) -> None:
+        """把**已完成阶段**的产物落到 checkpoint（P3-06）。
+
+        重启后据此**从最后完成阶段继续**，而不是从零重跑。
+        """
+        if not task_id:
+            return
+        try:
+            path = self.checkpoint_path(task_id)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "task_id": task_id,
+                "stage": stage,
+                "elapsed": round(time.time() - (state.start_time or time.time()), 3),
+                "iteration_count": state.iteration_count,
+                "query_type": state.query_type,
+                "artifacts": {
+                    "task_plan": _asdict_safe(state.task_plan),
+                    "worker_results": state.worker_results,
+                    "final_report": state.final_report,
+                    "quality_score": state.quality_score,
+                },
+                "updated_at": time.time(),
+            }
+            path.write_text(
+                json.dumps(payload, ensure_ascii=False, default=str), encoding="utf-8",
+            )
+        except Exception as exc:  # noqa: BLE001 - checkpoint 失败不阻断研究
+            logger.warning("写入研究 checkpoint 失败（task=%s）: %s", task_id, exc)
+
+    @staticmethod
+    def read_checkpoint(task_id: str) -> dict | None:
+        """读 checkpoint；不存在或损坏返回 ``None``。"""
+        try:
+            path = Orchestrator.checkpoint_path(task_id)
+            if not path.exists():
+                return None
+            return json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("读取研究 checkpoint 失败（task=%s）: %s", task_id, exc)
+            return None
+
+    #: 阶段顺序（用于判断 checkpoint 能从哪一步续跑）
+    _STAGE_ORDER = ("planning", "researching", "synthesizing", "iterating")
+
+    def run(self, task: str, *, task_id: str | None = None) -> ResearchState:
         """
         执行完整的研究流程（增强版 - 带智能终止）
 
@@ -703,26 +819,52 @@ class Orchestrator:
             status="initialized",
         )
 
+        # P3-06：读取 checkpoint → **从最后完成阶段继续**（不是从零重跑）
+        resume = self.read_checkpoint(task_id) if task_id else None
+        resume_stage = str((resume or {}).get("stage") or "")
+        resume_idx = (
+            self._STAGE_ORDER.index(resume_stage) + 1
+            if resume_stage in self._STAGE_ORDER else 0
+        )
+        if resume and resume_idx:
+            arts = resume.get("artifacts") or {}
+            state.query_type = str(resume.get("query_type") or "")
+            state.iteration_count = int(resume.get("iteration_count") or 0)
+            state.worker_results = list(arts.get("worker_results") or [])
+            state.final_report = str(arts.get("final_report") or "")
+            state.quality_score = int(arts.get("quality_score") or 0)
+            logger.info(
+                "研究任务 %s 从 checkpoint 续跑（已完成阶段：%s）", task_id, resume_stage,
+            )
+
         try:
             # ========== 阶段1: 任务拆解（含查询类型判断） ==========
-            state.status = "planning"
-            state.task_plan = self.decompose_task(task)
+            if resume_idx <= 0:
+                state.status = "planning"
+                state.task_plan = self.decompose_task(task)
 
-            # 记录查询类型
-            if state.task_plan.query_type:
-                state.query_type = state.task_plan.query_type.query_type
+                # 记录查询类型
+                if state.task_plan.query_type:
+                    state.query_type = state.task_plan.query_type.query_type
+                self.write_checkpoint(task_id, "planning", state)
 
             # ========== 阶段2: 初始研究 ==========
-            state.status = "researching"
-            state.worker_results = self.dispatch_workers(state.task_plan)
+            if resume_idx <= 1:
+                state.status = "researching"
+                state.worker_results = self.dispatch_workers(state.task_plan)
+                self.write_checkpoint(task_id, "researching", state)
 
             # ========== 阶段3: 生成初始报告 ==========
-            state.status = "synthesizing"
-            current_report = self.synthesize_results(
-                task,
-                state.task_plan,
-                state.worker_results,
-            )
+            if resume_idx <= 2:
+                state.status = "synthesizing"
+                current_report = self.synthesize_results(
+                    task,
+                    state.task_plan,
+                    state.worker_results,
+                )
+                self.write_checkpoint(task_id, "synthesizing", state)
+            else:
+                current_report = state.final_report
 
             # ========== 阶段4: 迭代优化循环（带智能终止） ==========
             state.status = "iterating"
@@ -743,6 +885,15 @@ class Orchestrator:
                 )
                 current_score = quality_result.get("overall_score", 0)
                 score_improvement = current_score - previous_score
+
+                # P2-04：质量检查之后做一次**事实核查**（此前 FACT_CHECK_PROMPT 零引用）
+                if settings.research_fact_check:
+                    fact_result = self.fact_check(current_report, sources=[current_report[:2000]])
+                    quality_result["fact_check"] = fact_result
+                    if fact_result.get("issues"):
+                        self._emit_progress("fact_check_issues", {
+                            "count": len(fact_result["issues"]),
+                        })
 
                 # 记录本次迭代
                 iteration_record = IterationRecord(

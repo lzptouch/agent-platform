@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+from contextvars import ContextVar
 from enum import Enum
 from typing import Any
 
@@ -18,6 +19,30 @@ from app.services.code_executor import LocalCodeExecutor
 from app.services.mcp_manager import MCPManager
 
 logger = logging.getLogger(__name__)
+
+#: **当前执行流**的工具 Schema 装载器（P2-02）。
+#:
+#: 用 contextvar 而非实例属性：``ToolRegistry`` 是**进程内共享单例**，
+#: 而工具延迟装载是**每轮对话独立**的状态——并发 run 必须互不影响。
+_current_loader: ContextVar[Any] = ContextVar("current_tool_loader", default=None)
+
+
+def set_current_loader(loader: Any):
+    """设置当前执行流的 loader，返回可用于 ``reset`` 的 token。"""
+    return _current_loader.set(loader)
+
+
+def reset_current_loader(token: Any) -> None:
+    """复位当前执行流的 loader（流结束时调用）。"""
+    try:
+        _current_loader.reset(token)
+    except ValueError:  # pragma: no cover - 跨上下文复位
+        _current_loader.set(None)
+
+
+def current_loader() -> Any:
+    """取当前执行流的 loader（无则 None）。"""
+    return _current_loader.get()
 
 
 class ToolProfile(str, Enum):
@@ -113,6 +138,29 @@ BUILTIN_TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "emit_artifact",
+        "description": "把工作区内的文件登记为**交付物**（产物），会在结果区的「产物」标签下可见。"
+        " 只在文件确为最终交付物时调用；中间文件不需要登记。",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "工作区内的文件路径（相对工作区根或绝对路径）"},
+                "title": {"type": "string", "description": "展示标题（默认取文件名）"},
+                "kind": {
+                    "type": "string",
+                    "description": (
+                        "产物类型：file / image / document / browser（浏览器页面截图）"
+                    ),
+                },
+                "url": {
+                    "type": "string",
+                    "description": "kind=browser 时的**页面地址**（来源 URL）",
+                },
+            },
+            "required": ["path"],
+        },
+    },
+    {
         "name": "list_directory",
         "description": "列出指定目录下的文件和子目录。",
         "input_schema": {
@@ -182,11 +230,15 @@ class ToolRegistry:
         enable_rag: bool = False,
         enable_web_research: bool = False,
         profile: ToolProfile = ToolProfile.WORK,
+        role_tools: list[str] | None = None,
     ) -> list[dict]:
         """合并工具。
 
         profile=CHAT：仅只读内置工具（read_file/list_directory）+ rag_query（不含 rag_ingest）
         + web_research + 标记 read_only 的 MCP Server 工具。
+
+        **P2-10** ``role_tools`` 非空时作为**工具上界**再裁一层
+        （实际调用仍要过权限引擎——最小权限）。
         """
         if profile == ToolProfile.CHAT:
             tools = [t for t in BUILTIN_TOOLS if t["name"] in CHAT_BUILTIN_NAMES]
@@ -217,6 +269,27 @@ class ToolRegistry:
                 except Exception as exc:  # noqa: BLE001 - 单个 Server 失败不阻塞其他
                     logger.warning("加载 MCP Server %s 工具失败: %s", name, exc)
 
+        # **P2-10 修复**：``role_tools`` 此前**声明并注释承诺**「作为工具上界再裁一层」，
+        # 但函数体从未使用它 → 角色声明的工具集**根本没有裁剪效果**。
+        #
+        # 语义（与 ``agent_service`` 的传参一致）：
+        # - **空/None** → 不限制（内置角色的 ``tools`` 都是空 → 保持全量工具）；
+        # - **非空** → **允许清单**：只保留清单内的工具。
+        #
+        # 匹配规则：精确名；另支持 ``mcp_<server>`` 形式的**族匹配**
+        # （匹配该 Server 的全部 ``mcp_<server>__<tool>``）。
+        if role_tools:
+            allowed = [str(x) for x in role_tools if str(x)]
+            exact = set(allowed)
+            families = {a for a in allowed if a.startswith("mcp_") and "__" not in a}
+
+            def _kept(name: str) -> bool:
+                if name in exact:
+                    return True
+                return any(name.startswith(f"{fam}__") for fam in families)
+
+            tools = [t for t in tools if _kept(t["name"])]
+
         return tools
 
     # ------------------------------------------------------------------ #
@@ -233,7 +306,27 @@ class ToolRegistry:
     ) -> tuple[str, str, dict]:
         """执行工具，返回 (result_json_str, tool_source, extra)。"""
         # 权限判定（唯一落点）：内置 / MCP / Web 三类工具共用同一条判定链
-        denial = self._check_permission(tool_name, tool_input, run_id=run_id, session_id=session_id)
+        # **W1-03**：把**执行器实际使用的工作目录**作为权限引擎的归一化基准，
+        # 保证「判定的路径」与「实际操作的路径」是同一个文件。
+        try:
+            _ws_root = str(executor.cwd_dir)
+        except Exception:  # noqa: BLE001
+            _ws_root = None
+        _ws_id = None
+        try:
+            from app.services.workspace.service import current_run_context
+
+            _ctx = current_run_context.get() or {}
+            _ws_id = _ctx.get("workspace_id")
+            if _ws_root is None:
+                _ws_root = _ctx.get("workspace_root")
+        except Exception:  # noqa: BLE001
+            pass
+        denial = self._check_permission(
+            tool_name, tool_input,
+            run_id=run_id, session_id=session_id,
+            workspace_root=_ws_root, workspace_id=_ws_id,
+        )
         if denial is not None:
             return json.dumps(denial, ensure_ascii=False), "denied", {}
 
@@ -297,6 +390,8 @@ class ToolRegistry:
         *,
         run_id: str | None = None,
         session_id: str | None = None,
+        workspace_root: str | None = None,
+        workspace_id: str | None = None,
     ) -> dict | None:
         """按权限规则判定一次工具调用（**S2 起为阻塞式审批**）。
 
@@ -306,6 +401,11 @@ class ToolRegistry:
         - 判定走 ``app/services/security`` 引擎（归一化 → 规则匹配 → 信任分层回落）；
         - 命中 ``ask`` 时**阻塞等待**用户决策（事件 + 审批端点），超时按 ``deny``；
         - 每次受控动作写 JSONL 审计与决策日志（含命中规则与原因）。
+
+        **W1-03 / AUD-H03**：``workspace_root`` 必须由调用方传入**执行器实际使用的
+        工作目录**（``executor.cwd_dir``）—— 否则权限引擎的路径归一基准
+        （后端进程 CWD）与执行基准（run 绑定的工作区）不一致 → **判定的与操作的
+        不是同一个文件**。
         """
         import time
 
@@ -327,6 +427,7 @@ class ToolRegistry:
 
         request = PermissionRequest(
             tool=tool_name, action=action, path=path, command=command,
+            workspace_id=workspace_id, workspace_root=workspace_root,
         )
         # Python 代码危险调用扫描（补 engine 动作检测）
         if code and action is None:
@@ -420,6 +521,8 @@ class ToolRegistry:
             return executor.execute_python(tool_input["code"])
         if tool_name == "execute_bash":
             return executor.execute_bash(tool_input["command"])
+        if tool_name == "emit_artifact":
+            return cls._emit_artifact(tool_input)
         if tool_name == "list_directory":
             return executor.list_directory(tool_input["dir_path"])
         return {"error": f"未知工具: {tool_name}"}
@@ -428,13 +531,49 @@ class ToolRegistry:
     # S5 / WP-5.1 工具检索与装载
     # ------------------------------------------------------------------ #
     @classmethod
+    def _emit_artifact(cls, tool_input: dict) -> dict:
+        """登记一个交付物（显式产出）。
+
+        **P2-12**：此前 ``emit_artifact`` **只存在于注释**——``artifacts.register_artifact``
+        没有生产调用点 → ``artifacts`` 表在生产路径**恒空**，产物列表恒空、按钮永不出现。
+        """
+        from pathlib import Path as _Path
+
+        from app.services.workspace.service import current_run_context
+
+        ctx = current_run_context.get()
+        if not ctx:
+            return {"error": "当前无运行上下文，无法登记产物"}
+        raw_path = str(tool_input.get("path") or "").strip()
+        if not raw_path:
+            return {"error": "缺少 path"}
+        try:
+            from app.services.workspace import artifacts as art
+
+            # F-UX-02：``kind`` / ``url`` 透传（浏览器页面的截图 + 来源地址）
+            rec = art.register_artifact(
+                ctx["run_id"],
+                ctx.get("workspace_id"),
+                _Path(ctx["workspace_root"]),
+                raw_path,
+                title=tool_input.get("title"),
+                kind=(str(tool_input.get("kind")).strip() or None)
+                if tool_input.get("kind") else None,
+                url=(str(tool_input.get("url")).strip() or None)
+                if tool_input.get("url") else None,
+            )
+        except Exception as exc:  # noqa: BLE001
+            return {"error": f"产物登记失败: {exc}"}
+        return {"registered": True, "artifact": rec}
+
+    @classmethod
     def _tool_search(cls, tool_input: dict) -> dict:
         """按关键词检索工具目录，返回 Top-K 候选（name + 描述 + 命名空间）。"""
         from app.services.exec.catalog import build_catalog, search_catalog
 
         query = str(tool_input.get("query", "") or "")
         top_k = int(tool_input.get("top_k", 5) or 5)
-        catalog = build_catalog(BUILTIN_TOOLS)
+        catalog = build_catalog(cls._searchable_tools())
         hits = search_catalog(catalog, query, top_k=top_k)
         return {
             "query": query,
@@ -442,15 +581,41 @@ class ToolRegistry:
             "hint": "如需完整参数，调用 tool_load 传入 names。",
         }
 
+    @staticmethod
+    def _searchable_tools() -> list[dict]:
+        """``tool_search`` 的检索面：**当前实际可用的全部工具**。
+
+        此前用静态的 ``BUILTIN_TOOLS`` → 即使能调用，也**搜不到**
+        RAG / Web / MCP 工具（它们不在内置清单里）。
+        """
+        try:
+            from app.services.chains.mcp.transport import MCPConnection, MCPEndpoint  # noqa: F401
+        except Exception:  # noqa: BLE001
+            pass
+        tools = list(BUILTIN_TOOLS) + list(RAG_TOOLS) + list(WEB_TOOLS)
+        return tools
+
+
     @classmethod
     def _tool_load(cls, tool_input: dict) -> dict:
-        """装载工具的完整 Schema（返回参数说明，之后可直接调用）。"""
+        """装载工具的完整 Schema（返回参数说明，之后可直接调用）—— **并回写 loader**。
+
+        **P2-02**：此前是纯静态路径：只把 Schema 塞进工具结果、**不回写 loader**
+        → 延迟装载实际只生效一轮（第二轮起工具集不再变化）。
+        现在通过 :data:`_current_loader`（contextvar，**按执行流隔离**，
+        并发 run 互不污染）找到本轮的 loader 并回写其已装载集合。
+        """
         import json
 
         names = tool_input.get("names") or []
         if isinstance(names, str):
             names = [names]
-        by_name = {str(t.get("name")): t for t in BUILTIN_TOOLS}
+        loader = _current_loader.get()
+        # 内置工具始终可查（loader 是本轮的可变视图，可能不含全部内置工具）
+        by_name: dict[str, dict] = {str(t.get("name")): t for t in BUILTIN_TOOLS}
+        if loader is not None:
+            by_name.update({str(t.get("name")): t for t in loader.all_tools})
+
         loaded = []
         missing = []
         for n in names:
@@ -463,6 +628,11 @@ class ToolRegistry:
                 "description": str(tool.get("description", ""))[:300],
                 "input_schema": tool.get("input_schema", {}),
             })
+
+        # 回写 loader：已装载的工具在**后续轮次**会被注入 Schema（P2-02 核心）
+        if loader is not None and loaded:
+            loader.load([str(t["name"]) for t in loaded])
+
         return {
             "loaded": loaded,
             "missing": missing,

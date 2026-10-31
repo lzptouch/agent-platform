@@ -29,9 +29,15 @@ def list_sessions(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     include_archived: bool = False,
+    only_trashed: bool = False,
     service: SessionService = Depends(get_session_service),
 ) -> Page[SessionOut]:
-    items, total = service.list(mode=mode, page=page, page_size=page_size, include_archived=include_archived)
+    # **W9-12 / AUD2-H14**：``include_archived`` = 包含已归档的；
+    # ``only_trashed`` = 只看回收站（已软删）。两者独立。
+    items, total = service.list(
+        mode=mode, page=page, page_size=page_size,
+        include_archived=include_archived, only_trashed=only_trashed,
+    )
     return Page(items=items, total=total, page=page, page_size=page_size)
 
 
@@ -46,6 +52,24 @@ def get_session(
     if detail is None:
         raise HTTPException(status_code=404, detail="会话不存在")
     return detail
+
+
+@router.delete(
+    "/{session_id}/purge",
+    summary="永久删除会话（管理员用；真正物理删除）",
+)
+def purge_session(
+    session_id: str,
+    service: SessionService = Depends(get_session_service),
+) -> dict:
+    """**永久删除**（P3-10）。
+
+    普通 ``DELETE /sessions/{id}`` 是**软删除**（写 ``deleted_at``，消息保留）；
+    本端点做真正的物理删除，供回收站「彻底删除」使用。
+    """
+    if not service.purge(session_id):
+        raise HTTPException(status_code=404, detail="会话不存在")
+    return {"ok": True, "purged": session_id}
 
 
 @router.patch("/{session_id}", response_model=SessionOut, summary="更新会话（改名/归档/配置）")

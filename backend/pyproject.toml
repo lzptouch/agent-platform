@@ -61,4 +61,6 @@ markers = [
     "unit: 纯函数 / 单类单元测试",
     "integration: 依赖 DB、调度、子进程的集成测试",
     "e2e: 端到端测试",
+    "slow: 耗时较长（>30s）的用例",
+    "real_llm: 需要真实 LLM 凭证的用例（默认 skip，需显式开启）",
 ]

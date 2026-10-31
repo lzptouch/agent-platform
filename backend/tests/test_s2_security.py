@@ -197,7 +197,7 @@ class TestApprovalFlow:
             ).all()
 
     def test_allow_workspace_落库(self, engine, tmp_path):
-        from app.services.permissions import PermissionService as Compat
+        from app.services.security.permissions import PermissionService as Compat
 
         req = self._ask_request(tmp_path)
         result: list = []
@@ -261,11 +261,25 @@ class TestAudit:
 # --------------------------------------------------------------------------- #
 class TestSandboxCapability:
     def test_返回真实能力而非硬编码(self):
+        """``available`` 必须与**真实隔离能力**一致（不是恒为 True）。
+
+        **W1-07 / AUD2-H43**：此前 ``available=True`` **恒定**，
+        而同一对象的 ``message`` 明说「无操作系统级沙箱隔离」
+        → ``api/v1/desktop.py`` 把它暴露成 ``sandbox_available``
+        → UI 显示「沙箱可用」→ 用户据此以为存在 OS 级隔离
+        （与 ``F-SEC-12``「沙箱能力诚实化」直接冲突）。
+
+        判定口径：``available`` 表示「**存在任何隔离机制**」——
+        仅策略层拦截（``level == "policy_only"``）时必须为 **False**。
+        """
         cap = sandbox.probe()
         assert cap.level == "policy_only"
-        assert cap.available is True
+        # 仅策略层拦截 → 无任何隔离机制 → available 必须为 False
+        assert cap.available is False
         assert "策略层" in cap.message
         assert cap.enforced_paths and cap.enforced_commands
+        # 「非硬编码」：available 必须**随 level 变化**，而不是常量
+        assert cap.available is (cap.level != "policy_only")
 
 
 # --------------------------------------------------------------------------- #
@@ -281,7 +295,7 @@ class TestSingletonAndCache:
     def test_规则缓存与失效(self, engine):
         first = engine.load_rules()
         # 新写一条规则 → 缓存失效后再读应包含它
-        from app.services.permissions import PermissionService as Compat
+        from app.services.security.permissions import PermissionService as Compat
 
         Compat().set_rule("tool", "some_new_tool", "allow")
         second = engine.load_rules(force=False)

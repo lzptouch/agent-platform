@@ -21,4 +21,7 @@ from app.services.exec.context import (  # noqa: F401
     estimate_tokens,
     trim_messages,
 )
-from app.services.exec.roles import BUILTIN_ROLES, Role, get_role  # noqa: F401
+from app.services.exec.team.roles import (  # noqa: F401
+    BUILTIN_ROLE_META,
+    BUILTIN_ROLE_PROMPTS,
+)

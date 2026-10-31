@@ -195,7 +195,7 @@ class TestApprovalEventRunId:
             def list_skills(self):
                 return []
 
-            def build_system_prompt(self, skills, mode, team):
+            def build_system_prompt(self, skills, mode, team, query=""):
                 return "系统提示"
 
         class _StubToolRegistry:
@@ -249,12 +249,17 @@ class TestDailyQuotaTimezone:
                 interval_seconds=3600, timezone="Asia/Shanghai",
             ))
 
-        now_utc = datetime.now(timezone.utc)
-        # 30 小时前：无论按 UTC 还是 Asia/Shanghai 都算「昨天」，不计入今天
-        old = (now_utc - timedelta(hours=30)).isoformat()
+        # **固定基准**：用「本地今天正午」而非「现在 - N 分钟」——
+        # 后者会随**钟点**变化（本地 23:5x 时「10 分钟前」已是昨天）→ 断言时有时无。
+        from zoneinfo import ZoneInfo
+
+        now_local = datetime.now(ZoneInfo("Asia/Shanghai"))
+        today_noon = now_local.replace(hour=12, minute=0, second=0, microsecond=0)
+        # 昨天正午：无论按 UTC 还是 Asia/Shanghai 都算「昨天」，不计入今天
+        old = (today_noon - timedelta(days=1)).astimezone(timezone.utc).isoformat()
         self._make_run(task_id, old)
-        # 10 分钟前：两个时区都算「今天」
-        recent = (now_utc - timedelta(minutes=10)).isoformat()
+        # 今天正午：两个时区都算「今天」
+        recent = today_noon.astimezone(timezone.utc).isoformat()
         self._make_run(task_id, recent)
 
         # Asia/Shanghai 的「今天」比 UTC 晚 8 小时 → 30 小时前的 run 在 UTC 里是昨天，
@@ -402,6 +407,8 @@ class TestMigrationChain:
         from app.core.config import settings
 
         db_path = (tmp_path / "mig.db").as_posix()
+        # **必须改环境变量**——alembic 的 env.py 从环境读 URL
+        monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db_path}")
         monkeypatch.setattr(settings, "database_url", f"sqlite:///{db_path}")
 
         backend_root = Path(__file__).resolve().parents[1]
@@ -414,10 +421,15 @@ class TestMigrationChain:
         con = sqlite3.connect(db_path)
         try:
             version = con.execute("SELECT version_num FROM alembic_version").fetchone()[0]
-            assert version == "0008", f"迁移未到 head，实际 {version}"
+            assert version == "0012", f"迁移未到 head，实际 {version}"
             tables = {
                 r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")
             }
+            # P2-16：RRULE 表达式列必须随迁移落地
+            task_cols = {
+                r[1] for r in con.execute("PRAGMA table_info(scheduled_tasks)")
+            }
+            assert "rrule_expr" in task_cols, f"scheduled_tasks 缺 rrule_expr：{task_cols}"
             assert "rag_documents" in tables
             # 内置规则已写入（0002 + 0004）
             count = con.execute("SELECT COUNT(*) FROM permission_rules").fetchone()[0]

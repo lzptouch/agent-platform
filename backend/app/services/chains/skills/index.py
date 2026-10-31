@@ -44,29 +44,46 @@ def _skill_md(skill_dir: Path) -> Path:
     return skill_dir / "SKILL.md"
 
 
-def build_index(skills_dir: Path) -> list[IndexEntry]:
-    """扫描技能目录，构建轻量索引（**不读正文**）。"""
+def build_index(skills_dir: Path | list[Path]) -> list[IndexEntry]:
+    """扫描技能目录，构建轻量索引（**不读正文**）。
+
+    **F-EXT-02 / AUD-H29（自定义 Skill 永远匹配不到）**
+
+    此前只扫**内置**目录（``settings.skills_dir``）→ 用户自建的 Skill
+    **永远不进索引** → ``match_skills()`` 永远匹配不到它们
+    → 「技能索引期只读 front matter、命中才读全文」的渐进披露对自定义 Skill **完全失效**。
+
+    现在：接受**目录列表**，按顺序扫描（自定义在前 → 同名时自定义优先，
+    与 ``SkillManager.reload()`` 的「自定义覆盖内置」语义一致），
+    并按 name **去重**。
+    """
+    dirs = [skills_dir] if isinstance(skills_dir, Path) else list(skills_dir)
     entries: list[IndexEntry] = []
-    if not skills_dir.exists():
-        return entries
-    for skill_dir in sorted(skills_dir.iterdir()):
-        if not skill_dir.is_dir():
+    seen: set[str] = set()
+    for base in dirs:
+        if base is None or not base.exists():
             continue
-        md = _skill_md(skill_dir)
-        if not md.exists():
-            continue
-        try:
-            # 只读 front matter：validate 会顺带解析正文，但我们只用 front matter 字段
-            spec = validate(md.read_text(encoding="utf-8", errors="replace"), expected_name=skill_dir.name)
-        except (SkillSpecError, OSError):
-            continue  # 非法技能不进索引
-        entries.append(IndexEntry(
-            name=spec.name,
-            description=spec.description,
-            version=spec.version,
-            triggers=tuple(spec.triggers),
-            path=str(skill_dir),
-        ))
+        for skill_dir in sorted(base.iterdir()):
+            if not skill_dir.is_dir():
+                continue
+            md = _skill_md(skill_dir)
+            if not md.exists():
+                continue
+            try:
+                # 只读 front matter：validate 会顺带解析正文，但我们只用 front matter 字段
+                spec = validate(md.read_text(encoding="utf-8", errors="replace"), expected_name=skill_dir.name)
+            except (SkillSpecError, OSError):
+                continue  # 非法技能不进索引
+            if spec.name in seen:
+                continue  # 同名：先扫到的优先（自定义覆盖内置）
+            seen.add(spec.name)
+            entries.append(IndexEntry(
+                name=spec.name,
+                description=spec.description,
+                version=spec.version,
+                triggers=tuple(spec.triggers),
+                path=str(skill_dir),
+            ))
     return entries
 
 

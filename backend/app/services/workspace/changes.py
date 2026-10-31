@@ -109,10 +109,19 @@ def revert(change_id: int, workspace_root: Path, *, tool: str = "revert") -> dic
 
     target = workspace_root / rel
     target.parent.mkdir(parents=True, exist_ok=True)
+
+    # **F-WS-07 / AUD-M24（回退留痕的 before_hash 取错时机）**
+    # 此前在 ``shutil.copy2`` **之后**才取 ``before_hash`` / ``size_before``
+    # → 记录的是**回退后**的内容哈希 → 回退记录的「变更前」字段等于「变更后」，
+    # 审计链断裂（无法据此再回退一次）。
+    # 现在：在**覆盖之前**取变更前的哈希与大小。
+    before_hash = (file_hash(target) or "") if target.exists() else ""
+    size_before = target.stat().st_size if target.exists() else 0
+
     shutil.copy2(snapshot_ref, target)
     record_change(run_id, workspace_id, workspace_root, target, "revert", tool, {
-        "before_hash": file_hash(target),
-        "size_before": target.stat().st_size,
+        "before_hash": before_hash,
+        "size_before": size_before,
         "snapshot_ref": snapshot_ref,
     })
     logger.info("已回退: %s ← %s", target, snapshot_ref)

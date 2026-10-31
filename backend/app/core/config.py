@@ -37,12 +37,22 @@ class Settings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = 8000
 
+    # ---------- 敏感信息处置（P2-07）----------
+    # allow = 只记录不改内容；encrypt = 允许并加密（密文进上下文，输出还原）；deny = 命中即拒
+    sensitive_policy: str = "encrypt"
+    # P2-04：DR 迭代中的事实核查开关（默认开启；关闭可省一次 LLM 调用）
+    research_fact_check: bool = True
+
     # ---------- 主 LLM（DashScope OpenAI 兼容，Agent 循环）----------
     dashscope_api_key: str = ""
     dashscope_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     default_model: str = "qwen-plus"
     max_tokens: int = 8192
     max_iterations: int = 20
+    # P2-05：Skill 轻量索引渐进披露的 Top-K
+    skill_match_top_k: int = 3
+    # P3-03：反思轮数上限（plan→action→reflection→action 的**轮数**硬上限）
+    reflection_max_rounds: int = 2
     exec_timeout: int = 180
 
     # ---------- 备选 LLM（OpenAI 兼容：DeepSeek 等，RAG / planner / reflection）----------
@@ -54,7 +64,14 @@ class Settings(BaseSettings):
 
     # ---------- OpenAI（Web Research 专用，可选）----------
     openai_api_key: str = ""
+    openai_base_url: str = "https://api.openai.com/v1"
     openai_model: str = "gpt-4o"
+
+    # ---------- Web 形态最小鉴权（P1-01）----------
+    #: 留空 = **不启用**（单机自用默认形态，避免打断既有用户）。
+    #: 非空时，Web 形态下所有 ``/api/v1/**`` 端点要求携带该 Key。
+    #: 桌面形态不受此影响（由桌面会话守卫 + Host 白名单负责）。
+    agent_api_key: str = ""
 
     # ---------- MCP 链路 ----------
     serper_api_key: str = ""
@@ -91,13 +108,17 @@ class Settings(BaseSettings):
     session_history_limit: int = 10
     session_history_max_chars: int = 8000
     chat_max_iterations: int = 5
-    save_chat_log: bool = False  # 会话入库后默认关闭旧 JSON 调试日志
 
     # ---------- 定时任务 ----------
     scheduler_enabled: bool = True
     tz: str = "Asia/Shanghai"
     schedule_run_timeout: int = 600
     schedule_max_concurrent: int = 2
+    # P3-01：交互与调度**分开预算**——此前共用 2 个槽，
+    # 一个长任务即可让所有交互请求返回 busy。
+    interactive_max_concurrent: int = 4
+    # P3-01：交互请求等待槽位的上限（秒）；超时才回 busy。
+    interactive_queue_timeout: float = 30.0
     schedule_lease_ttl: int = 60
     schedule_lease_renew: int = 20
     schedule_daily_run_limit: int = 100

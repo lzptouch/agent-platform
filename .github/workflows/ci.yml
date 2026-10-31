@@ -1,0 +1,223 @@
+name: CI
+
+# P5-04 · 7 层 CI 流水线（对应 `doc/testing/00` §11.1 的 L0~L5 + 每日 cron）
+#
+# 分层策略：
+#   L0 契约（3min）   · 文档数字门禁 + 需求追溯 + OpenAPI 契约   → 阻断合并
+#   L1 后端回归（5min）· pytest 全量 + 分层子集                  → 阻断合并
+#   L2 Web e2e（12min）· Playwright Web 功能矩阵                → 阻断合并
+#   L3 桌面 e2e（15min）· Playwright 桌面壳                     → 阻断合并
+#   L4 打包（40min）  · electron-builder + 打包态自检           → 阻断**阶段出口**
+#   L5 发布（60min）  · 签名与产物校验                          → 阻断发布
+#   每日全量          · 全层 + 视觉基线 + 覆盖率                → 仅告警
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 3 * * *"
+
+env:
+  PYTHON_VERSION: "3.11"
+  NODE_VERSION: "22"
+
+jobs:
+  # ------------------------------------------------------------------ L0
+  contract:
+    name: L0 契约门禁
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "${{ env.PYTHON_VERSION }}" }
+      - uses: actions/setup-node@v4
+        with: { node-version: "${{ env.NODE_VERSION }}" }
+      - name: 安装后端依赖
+        run: python -m pip install -r backend/requirements.txt
+      - name: 文档一致性门禁
+        run: python scripts/check_doc_consistency.py
+      - name: 文档数字门禁（P5-05）
+        run: python scripts/check_doc_numbers.py
+      - name: 需求追溯门禁（P5-06）
+        run: python scripts/check_traceability.py
+      - name: OpenAPI 端点契约
+        run: |
+          cd backend
+          python -c "
+          from app.main import app
+          spec = app.openapi()
+          paths = spec['paths']
+          print(f'端点数: {len(paths)}')
+          assert len(paths) > 50, '端点数异常'
+          "
+
+  # ------------------------------------------------------------------ L1
+  backend:
+    name: L1 后端回归
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "${{ env.PYTHON_VERSION }}" }
+      - name: 安装后端依赖（含测试依赖）
+        run: python -m pip install -r backend/requirements-dev.txt
+      - name: 快速子集（unit）
+        working-directory: backend
+        run: python -m pytest tests -q -m unit
+      - name: 全量后端
+        working-directory: backend
+        run: python -m pytest tests -q
+
+  # ------------------------------------------------------------------ L2
+  web-e2e:
+    name: L2 Web 端到端
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "${{ env.PYTHON_VERSION }}" }
+      - uses: actions/setup-node@v4
+        with: { node-version: "${{ env.NODE_VERSION }}" }
+      - name: 安装依赖
+        run: |
+          python -m venv backend/.venv
+          backend/.venv/bin/python -m pip install --upgrade pip
+          backend/.venv/bin/python -m pip install -r backend/requirements-dev.txt
+          backend/.venv/bin/python -m playwright install --with-deps chromium
+          cd frontend/web/vue-element-plus && npm ci && npm run build && cd ../../..
+      - name: 构建前端产物
+        run: node frontend/scripts/build-frontend.mjs
+      - name: Web e2e
+        working-directory: tests
+        run: ../backend/.venv/bin/python -m pytest web -q
+      - name: 上传结果工件
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-e2e-report
+          path: |
+            tests/report/**
+          retention-days: 14
+
+  # ------------------------------------------------------------------ L3
+  desktop-e2e:
+    name: L3 桌面端到端
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "${{ env.PYTHON_VERSION }}" }
+      - uses: actions/setup-node@v4
+        with: { node-version: "${{ env.NODE_VERSION }}" }
+      - name: 安装依赖
+        run: |
+          python -m venv backend/.venv
+          backend/.venv/bin/python -m pip install --upgrade pip
+          backend/.venv/bin/python -m pip install -r backend/requirements-dev.txt
+          backend/.venv/bin/python -m playwright install --with-deps chromium
+          cd frontend/web/vue-element-plus && npm ci && npm run build && cd ../../..
+          cd frontend/desktop && npm ci && npm run build && cd ../..
+      - name: 构建前端产物
+        run: node frontend/scripts/build-frontend.mjs
+      - name: 桌面 e2e
+        working-directory: tests
+        run: ../backend/.venv/bin/python -m pytest desktop -q
+
+  # ------------------------------------------------------------------ L4
+  package:
+    name: L4 打包
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    needs: [contract, backend, web-e2e, desktop-e2e]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "${{ env.PYTHON_VERSION }}" }
+      - uses: actions/setup-node@v4
+        with: { node-version: "${{ env.NODE_VERSION }}" }
+      - name: 安装依赖
+        run: |
+          python -m venv backend/.venv
+          backend/.venv/bin/python -m pip install --upgrade pip
+          backend/.venv/bin/python -m pip install -r backend/requirements-dev.txt
+          cd frontend/web/vue-element-plus && npm ci && npm run build && cd ../../..
+          cd frontend/desktop && npm ci && cd ../..
+      - name: 构建前端产物
+        run: node frontend/scripts/build-frontend.mjs
+      - name: 打包桌面应用
+        run: node scripts/build-desktop.mjs --platform linux --arch x64
+      - name: 打包态自检（9 项）
+        run: backend/.venv/bin/python scripts/verify_desktop_package.py
+      - name: 打包态 e2e
+        working-directory: tests
+        run: ../backend/.venv/bin/python -m pytest packaged -q
+
+  # ------------------------------------------------------------------ L5
+  release:
+    name: L5 发布校验
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    needs: [package]
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "${{ env.PYTHON_VERSION }}" }
+      - uses: actions/setup-node@v4
+        with: { node-version: "${{ env.NODE_VERSION }}" }
+      - name: 安装依赖
+        run: |
+          python -m venv backend/.venv
+          backend/.venv/bin/python -m pip install --upgrade pip
+          backend/.venv/bin/python -m pip install -r backend/requirements-dev.txt
+          cd frontend/web/vue-element-plus && npm ci && npm run build && cd ../../..
+          cd frontend/desktop && npm ci && cd ../..
+      - name: 构建并校验产物
+        run: |
+          node frontend/scripts/build-frontend.mjs
+          node scripts/build-desktop.mjs --platform linux --arch x64
+      - name: 体积预算校验
+        run: |
+          backend/.venv/bin/python scripts/check_doc_numbers.py --artifact-only
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-package
+          path: frontend/desktop/release/**
+          retention-days: 30
+
+  # ------------------------------------------------------------------ 每日全量
+  nightly:
+    name: 每日全量
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    if: github.event_name == 'schedule'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "${{ env.PYTHON_VERSION }}" }
+      - uses: actions/setup-node@v4
+        with: { node-version: "${{ env.NODE_VERSION }}" }
+      - name: 安装依赖
+        run: |
+          python -m venv backend/.venv
+          backend/.venv/bin/python -m pip install --upgrade pip
+          backend/.venv/bin/python -m pip install -r backend/requirements-dev.txt
+          backend/.venv/bin/python -m playwright install --with-deps chromium
+          cd frontend/web/vue-element-plus && npm ci && npm run build && cd ../../..
+      - name: 构建前端产物
+        run: node frontend/scripts/build-frontend.mjs
+      - name: 汇总全量结果（P5-01）
+        run: backend/.venv/bin/python scripts/collect_test_report.py
+      - name: 上传工件
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-report
+          path: tests/report/runs/**
+          retention-days: 30

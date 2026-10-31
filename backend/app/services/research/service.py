@@ -27,6 +27,7 @@ def run_research(
     max_workers: int | None = None,
     on_progress: Callable[[str, dict], None] | None = None,
     config_overrides: dict | None = None,
+    task_id: str | None = None,
 ) -> ResearchState:
     """执行一次深度研究，返回最终 ``ResearchState``。
 
@@ -51,4 +52,5 @@ def run_research(
         on_progress=on_progress,
         overrides=overrides,
     )
-    return orchestrator.run(task)
+    # P3-06：传 task_id → 每个阶段结束写 checkpoint（可续跑）
+    return orchestrator.run(task, task_id=task_id)

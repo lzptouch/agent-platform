@@ -33,7 +33,19 @@ RUN npm run build \
 # ---------------- 阶段 2：运行 ----------------
 FROM nginx:1.27-alpine AS runtime
 
-# 非 root 运行所需的缓存目录
+# ---------- Nginx 运行身份说明（务必读）----------
+# 本镜像**不是**整容器非 root：
+#   - 官方 nginx:alpine 的 **master 进程以 root 启动**（需要绑定 80 端口）；
+#   - **worker 进程以 nginx 用户运行**（见 deploy/nginx/nginx.conf 的 `user nginx;`）。
+# 下面只是把 worker 需要写入的缓存 / 日志目录属主准备好，**并非**整容器非 root。
+#
+# 若要改成**整容器非 root**，必须**四处同步**改，缺一即启动失败：
+#   1) deploy/nginx/nginx.conf：listen 80 → listen 8080（<1024 端口需特权），
+#      pid /var/run/nginx.pid → /tmp/nginx.pid（nginx 用户不可写 /var/run）；
+#   2) deploy/frontend/Dockerfile：追加 `USER nginx`（并保证 /var/cache/nginx、/var/log/nginx 可写）；
+#   3) docker-compose.yml：端口映射 `...:80` → `...:8080`（宿主侧仍是 ${HOST_HTTP_PORT:-8080}）；
+#   4) docker-compose.yml：web 的 healthcheck 改 http://127.0.0.1:8080/nginx-healthz。
+# 详见 deploy/README.md §4.6。
 RUN mkdir -p /var/cache/nginx/client_temp /var/log/nginx \
     && chown -R nginx:nginx /var/cache/nginx /var/log/nginx
 

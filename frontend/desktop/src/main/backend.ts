@@ -2,19 +2,23 @@
 
 设计见 doc/design/03-桌面壳与后端进程编排设计.md。
  */
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
+import path from "node:path";
 import http from "node:http";
 import { app } from "electron";
 
 import type { BackendEvent } from "../shared/types";
 import {
   ENV,
+  ENV_MISSED_WINDOW_HOURS,
   HANDSHAKE_PREFIX,
   HANDSHAKE_TIMEOUT_MS,
   HEALTH_FAIL_THRESHOLD,
   HEALTH_INTERVAL_MS,
+  HEALTHY_RESET_MS,
+  MISSED_WINDOW_HOURS,
   PATHS,
   RESTART_BACKOFF_MS,
   RESTART_BREAKER_THRESHOLD,
@@ -30,6 +34,18 @@ export interface BackendHandle {
   token: string;
 }
 
+/** 运行态记录（run-state.json）：孤儿回收的依据。 */
+export interface RunStateRecord {
+  pid: number;
+  port?: number;
+  started_at?: string;
+  /** 拉起 sidecar 的解释器路径（归属校验用）。 */
+  exe?: string;
+}
+
+/** 孤儿回收结果。 */
+export type ReclaimOutcome = "gone" | "killed" | "not-ours" | "alive";
+
 class BackendSupervisor {
   private child: ChildProcess | null = null;
   private token = "";
@@ -41,6 +57,12 @@ class BackendSupervisor {
   private listeners = new Set<(line: string) => void>();
   private eventListeners = new Set<(event: BackendEvent) => void>();
   private stopEventStream: (() => void) | null = null;
+  /** 启动中的 Promise：**幂等**的关键（见 start()）。 */
+  private startPromise: Promise<BackendHandle> | null = null;
+  /** 连续健康起点（毫秒时间戳）：满 HEALTHY_RESET_MS 才复位熔断计数。 */
+  private healthySince = 0;
+  /** 重启重试定时器（退出时要清掉）。 */
+  private retryTimer: NodeJS.Timeout | null = null;
 
   tokenValue(): string {
     return this.token;
@@ -81,11 +103,28 @@ class BackendSupervisor {
   // ------------------------------------------------------------------ //
   // 启动
   // ------------------------------------------------------------------ //
+  /**
+   * 启动后端（**幂等**）。
+   *
+   * **D1**：此前 `if (this.child) { const existing = this.handle(); if (existing) return existing; }`
+   * —— 握手**尚未完成**时 handle() 为 null → 继续往下走 → 生成**新令牌**并 spawn
+   * **第二个** sidecar，第一个变成孤儿（且它仍持旧令牌）→ 健康探活/SSE 全部 401
+   * → 无限重启。修复：启动过程用**同一个 in-flight Promise** 收敛，重复调用直接复用。
+   */
   async start(): Promise<BackendHandle> {
-    if (this.child) {
-      const existing = this.handle();
-      if (existing) return existing;
+    if (this.startPromise) return this.startPromise;
+    const existing = this.handle();
+    if (existing) return existing;
+    const promise = this.spawnAndHandshake();
+    this.startPromise = promise;
+    try {
+      return await promise;
+    } finally {
+      this.startPromise = null;
     }
+  }
+
+  private async spawnAndHandshake(): Promise<BackendHandle> {
     backendState.set("starting");
 
     this.token = crypto.randomBytes(32).toString("hex");
@@ -103,30 +142,48 @@ class BackendSupervisor {
       [ENV.protocol]: "1",
       [ENV.dataDir]: paths.dataDir,
       [ENV.frontendDist]: resolveFrontendDist(),
-      [ENV.playwrightBrowsersPath]: `${paths.dataDir}\\browsers`,
+      [ENV.playwrightBrowsersPath]: path.join(paths.dataDir, "browsers"),
+      // **D15**：此前**从未注入** → 后端 desktop_missed_window_hours 永远取默认 6
+      [ENV_MISSED_WINDOW_HOURS]: String(MISSED_WINDOW_HOURS),
     };
 
     this.child = spawn(python, ["-m", "app.desktop.launcher"], {
       cwd: backendDir,
       env,
       windowsHide: true,
+      // **D14**：POSIX 下**独立进程组**（pgid = child.pid）→ 退出时能整组回收
+      // （playwright 浏览器 / MCP 子进程否则会残留占端口）；Windows 不需要。
+      detached: process.platform !== "win32",
     });
 
     this.child.stderr?.on("data", (chunk: Buffer) => {
       this.emitLog(chunk.toString("utf-8"));
     });
 
-    const handshake = await this.waitForHandshake(this.child);
-    this.handshake = handshake;
-    backendState.markReady(handshake.port, handshake.pid);
-    this.writeRunState(handshake.port, handshake.pid);
-    this.startEventStream(handshake.port);
+    try {
+      const handshake = await this.waitForHandshake(this.child);
+      this.handshake = handshake;
+      backendState.markReady(handshake.port, handshake.pid);
+      this.healthySince = Date.now();
+      this.writeRunState(handshake.port, handshake.pid, python);
+      this.startEventStream(handshake.port);
 
-    this.child.on("exit", (code, signal) => this.onExit(code, signal));
+      this.child.on("exit", (code, signal) => this.onExit(code, signal));
+      // 握手完成 → 挂上 exit 监听之间进程已退出（极窄竞态）：视为启动失败
+      if (this.child.exitCode !== null || this.child.signalCode !== null) {
+        throw new Error(
+          `后端在握手完成后立即退出：code=${this.child.exitCode} signal=${this.child.signalCode}`,
+        );
+      }
 
-    await this.waitForHealthy(handshake.port);
-    this.startHealthLoop();
-    return this.handle()!;
+      await this.waitForHealthy(handshake.port);
+      this.startHealthLoop();
+      return this.handle()!;
+    } catch (err) {
+      // 启动失败：回收半启动的子进程（否则它会变成占端口的孤儿）
+      await this.killTree();
+      throw err;
+    }
   }
 
   // ------------------------------------------------------------------ //
@@ -159,13 +216,21 @@ class BackendSupervisor {
         cleanup();
         reject(err);
       };
+      // **D2**：握手期间进程退出必须**立刻**失败 —— 此前只监听 stdout/error，
+      // 崩溃的 sidecar 要干等到 90s 超时才发现。
+      const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
+        cleanup();
+        reject(new Error(`后端在握手完成前退出：code=${code} signal=${signal}`));
+      };
       const cleanup = () => {
         clearTimeout(timer);
         child.stdout?.off("data", onData);
         child.off("error", onErr);
+        child.off("exit", onExit);
       };
       child.stdout?.on("data", onData);
       child.on("error", onErr);
+      child.once("exit", onExit);
     });
   }
 
@@ -186,10 +251,13 @@ class BackendSupervisor {
   }
 
   private async checkHealth(): Promise<void> {
-    if (!this.handshake || backendState.current() !== "ready") return;
+    // **D9**：休眠时状态被置为 degraded → 这里若只认 "ready"，唤醒后探活**永久空转**。
+    const st = backendState.current();
+    if (!this.handshake || (st !== "ready" && st !== "degraded")) return;
     const ok = await this.ping(this.handshake.port, this.token);
     if (ok) {
       this.healthFails = 0;
+      this.noteHealthySustained();
       return;
     }
     this.healthFails += 1;
@@ -197,6 +265,14 @@ class BackendSupervisor {
       this.emitLog("健康探活连续失败，判定后端挂死");
       await this.restart("health-fail");
     }
+  }
+
+  /** 后端连续健康达到 HEALTHY_RESET_MS → 复位熔断计数（握手成功**不**复位）。 */
+  private noteHealthySustained(): void {
+    if (!this.healthySince) return;
+    if (Date.now() - this.healthySince < HEALTHY_RESET_MS) return;
+    this.healthySince = Date.now();
+    backendState.resetConsecutiveFailures();
   }
 
   private async waitForHealthy(port: number): Promise<void> {
@@ -239,6 +315,7 @@ class BackendSupervisor {
     this.stopHealthLoop();
     this.child = null;
     this.handshake = null;
+    this.healthySince = 0;
     if (backendState.current() === "stopping" || backendState.current() === "stopped") return;
     backendState.markCrashed(code !== 0 ? `exit code ${code}` : null);
     void this.restart("exit");
@@ -247,27 +324,50 @@ class BackendSupervisor {
   async restart(reason: string): Promise<void> {
     if (this.restarting) return;
     this.restarting = true;
+    let failure: string | null = null;
     try {
       this.emitLog(`后端重启（原因：${reason}）`);
-      if (backendState.status().restarts >= RESTART_BREAKER_THRESHOLD) {
+      // **D7**：熔断依据改为「连续失败次数」—— 握手成功不再清零，
+      // 否则「起来→秒崩」永远达不到阈值 → 无限重启。
+      if (backendState.status().consecutiveFailures >= RESTART_BREAKER_THRESHOLD) {
         backendState.set("degraded");
         this.emitLog("连续重启失败，已熔断；请查看日志");
         return;
       }
       backendState.noteRestart();
       const backoff = RESTART_BACKOFF_MS[
-        Math.min(backendState.status().restarts - 1, RESTART_BACKOFF_MS.length - 1)
+        Math.max(
+          0,
+          Math.min(
+            backendState.status().consecutiveFailures - 1,
+            RESTART_BACKOFF_MS.length - 1,
+          ),
+        )
       ];
       await sleep(backoff);
-      this.killTree();
+      await this.killTree();
       await this.start();
       // 重启后令牌更换，主窗口需重新引导
       const { rebootstrap } = await import("./window");
       rebootstrap();
     } catch (err) {
-      this.emitLog(`重启失败：${String(err)}`);
+      failure = String(err);
+      this.emitLog(`重启失败：${failure}`);
     } finally {
       this.restarting = false;
+    }
+    // 启动失败同样是一次失败：计入连续失败并继续重试（到熔断阈值为止）
+    if (failure !== null) {
+      backendState.markCrashed(failure);
+      if (backendState.status().consecutiveFailures < RESTART_BREAKER_THRESHOLD) {
+        this.retryTimer = setTimeout(
+          () => void this.restart("retry"),
+          RESTART_BACKOFF_MS[RESTART_BACKOFF_MS.length - 1],
+        );
+      } else {
+        backendState.set("degraded");
+        this.emitLog("连续重启失败，已熔断；请查看日志");
+      }
     }
   }
 
@@ -277,6 +377,10 @@ class BackendSupervisor {
   async stop(): Promise<void> {
     backendState.set("stopping");
     this.stopHealthLoop();
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
     this.stopEventStream?.();
     this.stopEventStream = null;
     const handle = this.handle();
@@ -298,20 +402,28 @@ class BackendSupervisor {
       });
       await sleep(800);
     }
-    this.killTree();
-    this.clearRunState();
+    await this.killTree();
+    // P6-07：**不**在这里删 run-state —— 本方法既用于「正常停止」，
+    // 也用于「检测到 sidecar 崩溃后清理」；后者必须**保留** run-state
+    // （其中的 pid 是下次启动回收孤儿的依据）。
+    // 只有**应用正常退出**（before-quit）才删除。
     backendState.set("stopped");
   }
 
   // ------------------------------------------------------------------ //
   // 运行态记录（孤儿回收依据）
   // ------------------------------------------------------------------ //
-  private writeRunState(port: number, pid: number): void {
+  private writeRunState(port: number, pid: number, exe: string): void {
     try {
       const { runStatePath } = getPaths();
       fs.writeFileSync(
         runStatePath,
-        JSON.stringify({ pid, port, started_at: new Date().toISOString() }, null, 2),
+        // **D8**：记录 started_at 与可执行文件路径 → 回收前可校验 pid 归属
+        JSON.stringify(
+          { pid, port, started_at: new Date().toISOString(), exe },
+          null,
+          2,
+        ),
         "utf-8",
       );
     } catch {
@@ -319,7 +431,14 @@ class BackendSupervisor {
     }
   }
 
-  private clearRunState(): void {
+  /**
+   * 删除 run-state.json。
+   *
+   * **P6-07**：**只在应用正常退出时调用**（`before-quit`）。
+   * sidecar 异常终止（崩溃 / 被强杀）时**必须保留**该文件——
+   * 其中的 pid 是下次启动 `cleanupOrphans()` 回收孤儿的依据。
+   */
+  clearRunState(): void {
     try {
       const { runStatePath } = getPaths();
       if (fs.existsSync(runStatePath)) fs.unlinkSync(runStatePath);
@@ -339,21 +458,168 @@ class BackendSupervisor {
   }
 
   /** Windows 下用 taskkill /T 清进程树；POSIX 下进程组退出。 */
-  private killTree(): void {
+  private async killTree(): Promise<void> {
     const child = this.child;
     if (!child || child.pid == null) return;
     const pid = child.pid;
-    try {
-      if (process.platform === "win32") {
+    if (process.platform === "win32") {
+      try {
         spawn("taskkill", ["/pid", String(pid), "/T", "/F"], { windowsHide: true });
-      } else {
-        child.kill("SIGTERM");
+      } catch {
+        // 进程可能已退出
       }
-    } catch {
-      // 进程可能已退出
+    } else {
+      const exited = new Promise<void>((resolve) => {
+        if (child.exitCode !== null || child.signalCode !== null) {
+          resolve();
+          return;
+        }
+        child.once("exit", () => resolve());
+      });
+      // 进程已退出 → 不要再发信号（pid 可能已被系统复用）
+      if (child.exitCode === null && child.signalCode === null) {
+        // **D14**：POSIX 侧车是 **detached** 启动的（自成进程组，pgid = pid），
+        // 必须整组结束，否则 playwright 浏览器 / MCP 子进程会残留占端口。
+        signalGroup(pid, "SIGTERM");
+      // 侧车走 uvicorn 优雅退出（要跑完 lifespan shutdown：调度器、Milvus、浏览器），
+      // 可能远超壳的退出等待窗口 → 超时后升级为 SIGKILL。
+      // 否则桌面端退出后会残留一个占着端口的孤儿进程（实测：SIGTERM 后仍在）。
+        await Promise.race([exited, sleep(2_000)]);
+        if (child.exitCode === null && child.signalCode === null) {
+          signalGroup(pid, "SIGKILL");
+          await Promise.race([exited, sleep(1_000)]);
+        }
+      }
     }
     this.child = null;
   }
+}
+
+/** sidecar 的模块名（命令行里出现它即可确认归属）。 */
+const SIDECAR_MODULE = "app.desktop.launcher";
+
+/** 给进程组发信号（POSIX：负 pid = 整个进程组）；失败则退回单进程。 */
+function signalGroup(pid: number, signal: NodeJS.Signals): void {
+  try {
+    process.kill(-pid, signal);
+  } catch {
+    try {
+      process.kill(pid, signal);
+    } catch {
+      // 进程可能已退出
+    }
+  }
+}
+
+/** pid 是否还活着。 */
+export function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    // EPERM：进程存在，只是不属于当前用户
+    return (err as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/** 取进程的完整命令行（POSIX: ps；Windows: tasklist）。取不到 → null。 */
+export function processCommandLine(pid: number): string | null {
+  try {
+    if (process.platform === "win32") {
+      const out = spawnSync("tasklist", ["/FI", `PID eq ${pid}`, "/FO", "CSV", "/NH"], {
+        encoding: "utf-8",
+        windowsHide: true,
+      });
+      if (out.status !== 0) return null;
+      const line = (out.stdout ?? "").split(/\r?\n/).find((l) => l.trim().startsWith('"'));
+      return line ? line.trim() : null;
+    }
+    const out = spawnSync("ps", ["-p", String(pid), "-o", "command="], { encoding: "utf-8" });
+    if (out.status !== 0) return null;
+    const text = (out.stdout ?? "").trim();
+    return text.length > 0 ? text : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 该 pid 是否就是本应用拉起的 sidecar（**归属校验**）。
+ *
+ * 依据：命令行里出现 sidecar 模块名，或出现 run-state 里记录的解释器全路径。
+ * 都不匹配 → pid 已被系统回收并复用 → **绝不能**发信号（会误杀无关进程）。
+ */
+export function isOwnedBySidecar(record: RunStateRecord, cmdline: string | null): boolean {
+  if (!cmdline) return false;
+  if (cmdline.includes(SIDECAR_MODULE)) return true;
+  if (record.exe && cmdline.includes(record.exe)) return true;
+  if (record.exe && process.platform === "win32") {
+    return cmdline.toLowerCase().includes(path.basename(record.exe).toLowerCase());
+  }
+  return false;
+}
+
+/** 读取 run-state.json（不存在 / 损坏 / 无有效 pid → null）。 */
+export function readRunState(runStatePath: string): RunStateRecord | null {
+  try {
+    if (!fs.existsSync(runStatePath)) return null;
+    const raw = JSON.parse(fs.readFileSync(runStatePath, "utf-8")) as Partial<RunStateRecord>;
+    if (typeof raw?.pid !== "number" || !Number.isInteger(raw.pid) || raw.pid <= 0) return null;
+    return {
+      pid: raw.pid,
+      ...(typeof raw.port === "number" ? { port: raw.port } : {}),
+      ...(typeof raw.started_at === "string" ? { started_at: raw.started_at } : {}),
+      ...(typeof raw.exe === "string" ? { exe: raw.exe } : {}),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** 等待 pid 消失（轮询）。 */
+async function waitForExit(pid: number, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if (!isProcessAlive(pid)) return true;
+    if (Date.now() >= deadline) return false;
+    await sleep(100);
+  }
+}
+
+/**
+ * 回收上次异常退出残留的 sidecar（**D8**）。
+ *
+ * 顺序很重要：SIGTERM → 轮询等待退出 → 超时升级 SIGKILL → **确认已退出**
+ * 才允许删除 run-state（此前是 SIGTERM 后立刻删 → 侧车还活着却没了凭据，
+ * 永远无法回收）。
+ */
+export async function reclaimOrphan(
+  record: RunStateRecord,
+  log?: (line: string) => void,
+): Promise<ReclaimOutcome> {
+  const pid = record.pid;
+  if (!isProcessAlive(pid)) return "gone";
+  const cmdline = processCommandLine(pid);
+  if (!cmdline) {
+    log?.(`孤儿回收：无法读取 pid=${pid} 的命令行 → 放弃（保留 run-state）`);
+    return "alive";
+  }
+  if (!isOwnedBySidecar(record, cmdline)) {
+    log?.(`孤儿回收：pid=${pid} 不属于本应用（${cmdline}）→ 放弃`);
+    return "not-ours";
+  }
+  try {
+    process.kill(pid, "SIGTERM");
+  } catch {
+    // 已退出
+  }
+  if (await waitForExit(pid, 2_000)) return "killed";
+  try {
+    process.kill(pid, "SIGKILL");
+  } catch {
+    // 已退出
+  }
+  return (await waitForExit(pid, 1_000)) ? "killed" : "alive";
 }
 
 function sleep(ms: number): Promise<void> {

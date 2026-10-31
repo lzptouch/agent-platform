@@ -32,6 +32,27 @@ from app.services.exec.limits import (
 logger = logging.getLogger(__name__)
 
 
+def scan_sensitive(content: str) -> dict:
+    """P2-07：写前敏感信息扫描。
+
+    策略来自 ``settings.sensitive_policy``：
+
+    - ``allow``：只记录命中，不改内容；
+    - ``encrypt``：命中片段加密（密文落盘，输出时由 ``sensitive.restore`` 还原）；
+    - ``deny``：命中即拒写。
+
+    扫描失败**不阻断写入**（宁可漏判，不可误伤）。
+    """
+    from app.core.config import settings
+    from app.services.security import sensitive
+
+    try:
+        return sensitive.process(content, policy=settings.sensitive_policy)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("敏感信息扫描失败（按放行处理）: %s", exc)
+        return {"action": "allow", "processed": content, "hits": []}
+
+
 class LocalCodeExecutor:
     """本地代码执行器（带超时与简单危险命令拦截）。"""
 
@@ -76,9 +97,19 @@ class LocalCodeExecutor:
     def cwd_dir(self) -> Path:
         """命令执行的工作目录。
 
-        桌面端以**用户选定的工作区**为准（可运行时切换），未选择时回落
-        ``data/outputs``——与改造前行为一致。
+        **P2-18**：此前取**全局当前工作区**（可运行时切换）→ 运行中切换空间
+        会影响本次 run 的写盘位置。现在**优先取本次 run 绑定的**
+        ``workspace_root``（``current_run_context``，运行期锁死）；
+        无 run 上下文时回落全局当前空间，再回落 ``data/outputs``。
         """
+        from app.services.workspace.service import current_run_context
+
+        ctx = current_run_context.get()
+        if ctx and ctx.get("workspace_root"):
+            bound = Path(str(ctx["workspace_root"]))
+            if bound.exists():
+                return bound
+
         from app.core.workspace import get_workspace_dir
 
         try:
@@ -89,21 +120,75 @@ class LocalCodeExecutor:
             return workspace
         return self.output_dir
 
+    def _manifest_writable_roots(self) -> list[Path]:
+        """当前工作空间 manifest 声明的 ``writable_roots``（P2-20）。"""
+        try:
+            from app.services.workspace.manifest import read_manifest_for
+            from app.services.workspace.service import WorkspaceService, current_run_context
+
+            ctx = current_run_context.get()
+            workspace_id = (ctx or {}).get("workspace_id")
+            if not workspace_id:
+                current = WorkspaceService.instance().current()
+                workspace_id = current.id if current else None
+            if not workspace_id:
+                return []
+            # P2-20 修复：按工作空间**真实 root_path** 读（此前读不到写入的文件）
+            manifest = read_manifest_for(str(workspace_id))
+            out: list[Path] = []
+            for raw in manifest.get("writable_roots") or []:
+                try:
+                    out.append(Path(str(raw)).expanduser())
+                except Exception:  # noqa: BLE001
+                    continue
+            return out
+        except Exception:  # noqa: BLE001 - manifest 不可读不应阻断执行
+            return []
+
     @property
     def allowed_roots(self) -> list[Path]:
-        """文件工具允许访问的根目录。
+        """文件工具允许访问的根目录（**写操作全形态生效**）。
 
-        仅桌面模式生效（默认 = 当前工作区）；Web 形态不做限制，保持既有行为。
+        **P1-09**：此前**仅桌面模式生效**——Web 形态返回 ``[]`` →
+        ``_check_allowed`` 直接放行 → 模型给出的**任意绝对路径**都可写入，
+        绕过工作区约束。
+
+        现在默认两个根：
+
+        1. 当前工作区（``cwd_dir``）
+        2. 平台产出目录（``output_dir``）—— 把产物写进 ``data/outputs``
+           是合法且常见的，不应被拦。
+        """
+        roots = [self.cwd_dir]
+        # P2-20：manifest 的 ``writable_roots`` 是**追加的可写根**——
+        # 此前 manifest 五字段无读取方，「改 manifest 即生效」不成立。
+        for extra in self._manifest_writable_roots():
+            if extra not in roots:
+                roots.append(extra)
+        out = self.output_dir
+        if out not in roots:
+            roots.append(out)
+        return roots
+
+    def _check_allowed(self, path: Path, *, for_write: bool = False) -> str | None:
+        """校验路径是否在允许范围内；返回错误说明（None 表示放行）。
+
+        **P1-09** 的边界口径：
+
+        - **写**（``write_file``）：**全形态**都受工作区边界约束；
+        - **读**（``read_file`` / ``list_directory``）：
+          桌面态保持与写同一条边界（不削弱既有能力）；
+          Web 形态**不设硬边界**——读工作区外的源码/配置/资料库 PDF 是
+          合法且常见的，其边界由权限引擎（``file`` scope）负责。
+
+        空 roots = 不限制。
         """
         from app.core.config import settings as _settings
 
-        if not _settings.desktop_mode:
-            return []
-        return [self.cwd_dir]
-
-    def _check_allowed(self, path: Path) -> str | None:
-        """校验路径是否在允许范围内；返回错误说明（None 表示放行）。"""
-        roots = self.allowed_roots
+        if for_write or _settings.desktop_mode:
+            roots = self.allowed_roots
+        else:
+            roots = []
         if not roots:
             return None
         try:
@@ -296,7 +381,7 @@ class LocalCodeExecutor:
     def write_file(self, file_path: str, content: str) -> dict:
         try:
             path = self._resolve(file_path)
-            denied = self._check_allowed(path)
+            denied = self._check_allowed(path, for_write=True)
             if denied:
                 return {"success": False, "path": file_path, "error": denied}
             # S3：有 run 上下文时做写前快照 + 变更落账（快照失败不阻断写入）
@@ -314,6 +399,15 @@ class LocalCodeExecutor:
                     )
             except Exception:  # noqa: BLE001 —— 快照失败不阻断写入
                 ctx = None
+            # P2-07：写前扫描敏感信息（按 settings.sensitive_policy 处置）
+            scan = scan_sensitive(content)
+            if scan["action"] == "deny":
+                return {
+                    "success": False,
+                    "path": file_path,
+                    "error": f"内容含敏感信息，已按策略拒绝写入：{scan['hits']}",
+                }
+            content = scan["processed"]
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content, encoding="utf-8")
             if ctx:

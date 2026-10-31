@@ -32,7 +32,7 @@ from fastapi.responses import StreamingResponse
 from app.api.deps import get_desktop_service, get_permission_service, get_scheduler_service
 from app.desktop.events import bus
 from app.services.desktop_service import DesktopService
-from app.services.permissions import DECISIONS, PermissionService
+from app.services.security.permissions import DECISIONS, PermissionService
 from app.services.scheduler_service import SchedulerService
 
 router = APIRouter(prefix="/desktop", tags=["desktop"])
@@ -118,16 +118,43 @@ def set_workspace(
 @router.get("/events", summary="桌面事件流（SSE）")
 def desktop_events(
     after_id: int = Query(default=0, ge=0),
+    max_events: int | None = Query(default=None, ge=1),
 ) -> StreamingResponse:
+    """桌面事件流（SSE：后端 → 桌面壳）。
+
+    ``max_events`` 是**有界模式**：发满指定条数后结束。
+    它不是"测试专用开关"——只取前 N 条的客户端（冒烟脚本、一次性诊断）
+    不必自己掐断连接；它同时也是本端点**可测**的前提：
+    Starlette 的 ``TestClient`` 会先把响应体收完再返回，
+    对无限流端点而言，无界模式在测试里必然挂死。
+
+    **P4-09 · 形态限制（明确写进 API 契约）**：
+    本端点是**桌面壳专用**的事件通道（壳通过 preload 消费后转发给渲染进程）。
+    **Web 形态不消费这条 SSE** —— 因此
+    ``permission_requested`` / ``workspace_changed`` / ``scheduler_rescued``
+    三类事件在 **Web 端不可见**；Web 端审批走
+    ``GET /api/v1/permissions/decisions`` 的**轮询**（默认 2s），
+    权限卡仍会出现，只是**延迟上限约 2s**（而非桌面端的即时推送）。
+    """
     def event_stream():
         cursor = after_id
         deadline = time.monotonic() + EVENT_MAX_SECONDS
+        sent = 0
         yield _sse({"type": "hello", "protocol": 1, "backend_version": _version()})
+        sent += 1
+        if max_events is not None and sent >= max_events:
+            return
         while time.monotonic() < deadline:
             for event in bus.since(cursor):
                 cursor = int(event.get("id", cursor))
                 yield _sse(event)
+                sent += 1
+                if max_events is not None and sent >= max_events:
+                    return
             yield _sse({"type": "heartbeat", "ts": _now()})
+            sent += 1
+            if max_events is not None and sent >= max_events:
+                return
             time.sleep(EVENT_POLL_INTERVAL)
 
     return StreamingResponse(
@@ -206,13 +233,26 @@ def permission_decision(
     target = str(payload.get("target", "")).strip()
     if decision not in ("once", "always", "deny"):
         raise HTTPException(status_code=422, detail="decision 必须是 once / always / deny")
-    if scope and target:
-        mapped = {"once": "ask", "always": "allow", "deny": "deny"}[decision]
+    if not scope or not target:
+        # **AUD2-M08**：此前 scope/target 缺失时**静默返回 ok=True**（什么都没做）
+        raise HTTPException(status_code=422, detail="缺少 scope / target")
+    # **W1-06 / AUD2-H22（「仅此一次」被写成永久规则）**
+    # 此前三者都**落库**：``once`` 被映射成 ``ask`` → 用户选「仅此一次」，
+    # 实际变成该目标此后**每次都要审批**的**永久规则**（与 F-SEC-13
+    # 「会话级决定不落库」直接冲突）。
+    # 现在：**只有 ``always`` / ``deny`` 才落库**；``once`` 不写规则表。
+    if decision in ("always", "deny"):
         try:
-            permissions.set_rule(scope, target, mapped)
+            permissions.set_rule(scope, target, "allow" if decision == "always" else "deny")
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return {"ok": True, "decision": decision, "expires_at": None}
+    # decision == "once" → **不写规则表**（一次性授权由会话内的 pending decision 通道承担）
+    return {
+        "ok": True,
+        "decision": decision,
+        "expires_at": None,
+        "persisted": decision in ("always", "deny"),
+    }
 
 
 # ---------------------------------------------------------------------- #

@@ -19,7 +19,19 @@ if __name__ == "__main__":
         action="store_true",
         help="重建 collection 并全量重灌（默认增量幂等）",
     )
+    parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="确认执行破坏性操作（--recreate 必需）",
+    )
     args = parser.parse_args()
+
+    # **E10**：``--recreate`` 会**删除并重建**整个 collection → 丢掉全量向量数据。
+    # 此前无任何确认 → 误传即造成不可逆的数据丢失。
+    if args.recreate and not args.yes:
+        print("[ingest] ✗ --recreate 会删除并重建 collection（全量向量数据丢失）。")
+        print("[ingest]   确认无误后追加 --yes 重新运行。")
+        raise SystemExit(2)
 
     stats = ingest(recreate=args.recreate)
     if stats.get("ingested", 0) == 0 and stats.get("skipped", 0) > 0:

@@ -13,10 +13,6 @@ export interface SaveResult {
   path: string | null;
 }
 
-export interface OperationResult {
-  ok: boolean;
-}
-
 export interface UpdateInfo {
   version: string;
   notes: string;
@@ -29,6 +25,8 @@ export interface BackendStatus {
   port: number | null;
   pid: number | null;
   restarts: number;
+  /** 连续失败次数（熔断依据）：握手成功**不**清零。 */
+  consecutiveFailures: number;
   lastError: string | null;
 }
 
@@ -41,17 +39,6 @@ export type BackendState =
   | "crashed"
   | "stopping"
   | "stopped";
-
-export interface InstallProgress {
-  component: string;
-  percent: number;
-  status: "downloading" | "installing" | "done" | "error";
-  message?: string;
-}
-
-export interface InstallProgressHandle {
-  handle: string;
-}
 
 export interface BackendEvent {
   /** 事件类型：后端可自由扩展（backend:state / workspace_changed / run_started / scheduler_rescued …） */

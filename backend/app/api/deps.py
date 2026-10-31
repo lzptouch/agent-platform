@@ -7,7 +7,7 @@ from app.services.agent_service import AgentService
 from app.services.code_executor import LocalCodeExecutor
 from app.services.desktop_service import DesktopService
 from app.services.mcp_manager import MCPManager
-from app.services.permissions import PermissionService
+from app.services.security.permissions import PermissionService
 from app.services.research.research_manager import ResearchManager
 from app.services.run_executor import RunExecutor
 from app.services.run_service import RunService
@@ -81,3 +81,9 @@ def get_desktop_service(request: Request) -> DesktopService:
 def get_permission_service(request: Request) -> PermissionService:
     init_app_state(request.app)
     return request.app.state.permission_service
+
+
+def get_orchestration_service(request: Request):
+    """多 Agent 编排服务（P2-09 路 B）。"""
+    init_app_state(request.app)
+    return request.app.state.orchestration_service

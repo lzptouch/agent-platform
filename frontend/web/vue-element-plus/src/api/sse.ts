@@ -119,6 +119,18 @@ export function streamAgent(
  *
  * 与 backend/app/api/v1/research.py:199-218 的 1800s 静默退出配套。
  */
+/** P4-03：重连退避参数——此前固定 1s 重试且**无上限**，后端持续异常时会无限静默重连。 */
+const RECONNECT_BASE_MS = 500
+const RECONNECT_MAX_MS = 15_000
+const RECONNECT_MAX_ATTEMPTS = 12
+
+/** 指数退避 + ±20% 抖动（避免多客户端同时重连打垮服务端）。 */
+function backoffMs(attempt: number): number {
+  const raw = Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * 2 ** Math.max(0, attempt - 1))
+  const jitter = raw * 0.2 * (Math.random() * 2 - 1)
+  return Math.max(100, Math.round(raw + jitter))
+}
+
 export async function streamResearchWithReconnect(
   streamUrl: string,
   statusUrl: string,
@@ -131,6 +143,9 @@ export async function streamResearchWithReconnect(
   const dedupKey = (stage: string, ts: string) => `${stage}|${ts}`
 
   const status = await fetch(statusUrl, { signal }).then(r => r.json()) as import('./types').ResearchTaskStatusResp
+
+  /** P4-03：连续重连次数（达上限即放弃，不再无限静默重试）。 */
+  let attempt = 0
 
   while (!signal?.aborted) {
     try {
@@ -147,6 +162,12 @@ export async function streamResearchWithReconnect(
     } catch (e) {
       if (signal?.aborted) throw e
       // 网络中断等 → 继续循环，下面会回查状态
+      attempt += 1
+      if (attempt > RECONNECT_MAX_ATTEMPTS) {
+        throw new Error(
+          `研究流重连超过上限（${RECONNECT_MAX_ATTEMPTS} 次），已停止重试：${String(e)}`,
+        )
+      }
     }
 
     // 流自然结束（200s/1800s/服务端断开） → 回查状态
@@ -155,8 +176,12 @@ export async function streamResearchWithReconnect(
       current = await fetch(statusUrl, { signal }).then(r => r.json())
     } catch (e) {
       if (signal?.aborted) throw e
-      // 网络不可达：1s 后重试
-      await sleep(1000)
+      // 网络不可达 → **退避**后重试（P4-03）
+      attempt += 1
+      if (attempt > RECONNECT_MAX_ATTEMPTS) {
+        throw new Error(`研究状态回查超过上限（${RECONNECT_MAX_ATTEMPTS} 次），已停止重试`)
+      }
+      await sleep(backoffMs(attempt))
       continue
     }
 
@@ -171,8 +196,12 @@ export async function streamResearchWithReconnect(
       return current
     }
 
-    // 仍非终态 → 1s 后重订阅（断流恢复关键）
-    await sleep(1000)
+    // 仍非终态 → **退避**后重订阅（断流恢复关键；P4-03）
+    attempt += 1
+    if (attempt > RECONNECT_MAX_ATTEMPTS) {
+      throw new Error(`研究流持续非终态且重连超过上限（${RECONNECT_MAX_ATTEMPTS} 次），已停止重试`)
+    }
+    await sleep(backoffMs(attempt))
   }
 
   return status

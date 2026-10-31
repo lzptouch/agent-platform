@@ -24,6 +24,25 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+
+#: **账号状态类**错误 → 环境问题（跳过），不属于代码缺陷
+_ENV_ERROR_CODES = (
+    "Arrearage",          # 欠费
+    "AccessDenied",       # 权限被撤销
+    "InvalidApiKey",      # 密钥失效
+    "Throttling",         # 限流（临时环境问题）
+    "ServiceUnavailable",
+)
+
+
+def _skip_if_env_issue(exc: BaseException) -> None:
+    """若异常属于**账号/服务状态**问题 → 跳过；否则原样抛出。"""
+    text = str(exc)
+    if any(code in text for code in _ENV_ERROR_CODES):
+        pytest.skip(f"环境问题（账号/服务状态）：{type(exc).__name__}: {text[:160]}")
+    raise exc
+
+
 @pytest.fixture()
 def live_run_id() -> str:
     """建一条真实的 run 行（用于挂计量）。"""
@@ -47,11 +66,15 @@ class TestLiveQwen:
         from app.core.llm import get_llm_client
 
         client = get_llm_client("dashscope")
-        resp = client.chat.completions.create(
-            model=settings.default_model,
-            messages=[{"role": "user", "content": "只回复一个字：好"}],
-            max_tokens=8,
-        )
+        try:
+            resp = client.chat.completions.create(
+                model=settings.default_model,
+                messages=[{"role": "user", "content": "只回复一个字：好"}],
+                max_tokens=8,
+            )
+        except Exception as exc:  # noqa: BLE001 - 账号状态问题 → 环境问题
+            _skip_if_env_issue(exc)
+            raise
         assert resp.choices[0].message.content
         usage = getattr(resp, "usage", None)
         assert usage is not None and usage.total_tokens > 0
@@ -62,11 +85,15 @@ class TestLiveQwen:
         from app.services.exec.accounting import CallUsage
 
         client = get_llm_client("dashscope")
-        resp = client.chat.completions.create(
-            model=settings.default_model,
-            messages=[{"role": "user", "content": "回复：测试"}],
-            max_tokens=8,
-        )
+        try:
+            resp = client.chat.completions.create(
+                model=settings.default_model,
+                messages=[{"role": "user", "content": "回复：测试"}],
+                max_tokens=8,
+            )
+        except Exception as exc:  # noqa: BLE001 - 账号状态问题 → 环境问题
+            _skip_if_env_issue(exc)
+            raise
         usage = getattr(resp, "usage", None)
         record_call(
             CallUsage(

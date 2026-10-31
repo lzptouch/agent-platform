@@ -140,7 +140,10 @@ def main() -> int:
 
     config = uvicorn.Config(
         app,
-        host="127.0.0.1",
+        # P1-10：桌面端的绑定地址**由 bind_loopback() 决定**（必须回环——
+        # 桌面形态不对外暴露端口）。此处**不写** host 字面量：uvicorn 在
+        # ``server.run(sockets=[sock])`` 下会忽略 host/port，写一个看似可配的
+        # 字面量只会让人误以为改 settings.host 能改变桌面端绑定（实际不生效）。
         port=port,
         log_config=LOGGING_CONFIG,
         access_log=False,

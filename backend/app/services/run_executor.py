@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from concurrent.futures import ThreadPoolExecutor
 import time
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
@@ -27,6 +28,12 @@ logger = logging.getLogger(__name__)
 EVENT_FLUSH_COUNT = 20
 EVENT_FLUSH_INTERVAL = 2.0
 
+#: P1-07：**显式终止原因**——这些终态由用户的显式动作产生，优先级高于 ``error``。
+#: 取消（interrupted）时 ``error`` 字段仍记录取消原因供 UI 展示，
+#: 但**不再把终态覆盖为 failed**（此前 ``if error: final_status="failed"`` 无条件覆盖，
+#: 导致用户点「停止」后 run 终态变成 failed 而非 interrupted）。
+EXPLICIT_TERMINAL_STATUSES = {"interrupted", "rejected", "skipped"}
+
 
 class RunExecutor:
     def __init__(
@@ -41,7 +48,21 @@ class RunExecutor:
         self.run_service = run_service
         self.team_service = team_service
         # 全局并发护栏（仅调度/阻塞执行使用，交互式 SSE 不占用）
-        self._semaphore = threading.BoundedSemaphore(settings.schedule_max_concurrent)
+        # P3-01：**两个独立预算**——交互（HTTP/前端）与调度（定时）互不占用。
+        # 交互请求**排队等待**槽位（超时才回 busy）；调度请求满了直接 busy。
+        self._schedule_semaphore = threading.BoundedSemaphore(
+            settings.schedule_max_concurrent,
+        )
+        # P3-15：**受控线程池**替代裸 daemon 线程——
+        # daemon 线程在进程退出时被直接杀掉，恢复中的执行**静默丢失**；
+        # 线程池可等待完成（优雅退出），且并发天然受 ``schedule_max_concurrent`` 约束。
+        self._resume_pool = ThreadPoolExecutor(
+            max_workers=max(1, settings.schedule_max_concurrent),
+            thread_name_prefix="run-resume",
+        )
+        self._interactive_semaphore = threading.BoundedSemaphore(
+            settings.interactive_max_concurrent,
+        )
         # 运行控制：steer 待注入指令 / cancel 中止标志（按 run_id）
         self._steer_queue: dict[str, list[str]] = {}
         self._cancel_flags: dict[str, threading.Event] = {}
@@ -122,6 +143,8 @@ class RunExecutor:
         enable_rag: bool = False,
         enable_web_research: bool = False,
         enable_reflection: bool = False,
+        role_id: int | None = None,   # P2-10：按角色运行
+        debug_prompt: bool = False,   # P4-06：调试模式全量下发 prompt
         trigger: str = "api",
         task_id: str | None = None,
         scheduled_for: str | None = None,
@@ -139,13 +162,40 @@ class RunExecutor:
 
         ws_ctx_active = False  # 在 finally 中复位（早退路径也安全）
         slot_acquired = False  # 并发预算槽位（finally 中释放）
+        slot_sem = None
+
+        def _release_slot() -> None:
+            """释放并发槽位（**幂等**）。
+
+            **W2-01 / AUD-C03（早退路径泄漏槽位）**
+
+            此前槽位在 ``:167`` 获取、在内层 ``try/finally``（``:379``）释放，
+            但那个 ``try`` **从 ``:318`` 才开始** → 位于其前的 5 条早退分支
+            （团队不存在 / 会话不存在 / chat 会话不支持 plan_first /
+            幂等冲突 / 预创建 run 不存在）**全部绕过 finally** →
+            每 4 次这样的错误请求就把 ``interactive_max_concurrent=4``
+            的槽位**全部泄漏** → 交互式运行**永久 busy**（调度路径仍正常）。
+            """
+            nonlocal slot_acquired, slot_sem
+            if slot_acquired and slot_sem is not None:
+                slot_sem.release()
+                slot_acquired = False
+                slot_sem = None
+
+        def _fail(content: str) -> Iterator[dict]:
+            """统一的早退出口：**先释放槽位**再产出 error/done。"""
+            _release_slot()
+            yield {"type": "error", "content": content}
+            yield {"type": "done"}
+
         if acquire_slot:
-            if not self._semaphore.acquire(blocking=False):
+            slot_sem, acquired, slot_limit = self._acquire_slot(trigger)
+            if not acquired:
                 # 并发预算已满 → 明确告知（不静默丢弃）
                 yield {
                     "type": "busy",
                     "content": "busy: 并发已达上限，请稍后重试",
-                    "limit": settings.schedule_max_concurrent,
+                    "limit": slot_limit,
                 }
                 yield {"type": "done"}
                 return
@@ -160,8 +210,7 @@ class RunExecutor:
                     team_id, query=prompt, mode=mode
                 )
             except KeyError:
-                yield {"type": "error", "content": f"团队不存在: {team_id}"}
-                yield {"type": "done"}
+                yield from _fail(f"团队不存在: {team_id}")
                 return
 
         # ---- 会话 ----
@@ -169,13 +218,11 @@ class RunExecutor:
         if session_id:
             session = self.session_service.get(session_id, message_limit=0)
             if session is None:
-                yield {"type": "error", "content": f"会话不存在: {session_id}"}
-                yield {"type": "done"}
+                yield from _fail(f"会话不存在: {session_id}")
                 return
             mode = session.mode  # 会话模式不可变
             if plan_first and mode == "chat":
-                yield {"type": "error", "content": "该会话是对话模式，不支持计划审批；请新建工作模式会话"}
-                yield {"type": "done"}
+                yield from _fail("该会话是对话模式，不支持计划审批；请新建工作模式会话")
                 return
             if session.team_id and not team_id and self.team_service is not None:
                 try:
@@ -213,6 +260,7 @@ class RunExecutor:
                 },
             )
             if run is None:
+                _release_slot()
                 yield {"type": "notice", "content": "相同调度槽位已存在运行记录，跳过"}
                 yield {"type": "done"}
                 return
@@ -221,8 +269,7 @@ class RunExecutor:
             # 预创建 run（调度器幂等闸门）：补充 meta 便于审批恢复
             existing = self.run_service.get_run(run_id)
             if existing is None:
-                yield {"type": "error", "content": f"运行记录不存在: {run_id}"}
-                yield {"type": "done"}
+                yield from _fail(f"运行记录不存在: {run_id}")
                 return
             meta = dict(existing.meta)
             meta.setdefault("prompt", prompt)
@@ -300,6 +347,8 @@ class RunExecutor:
                 enable_rag=enable_rag,
                 enable_web_research=enable_web_research,
                 enable_reflection=enable_reflection,
+                role_id=role_id,
+                debug_prompt=debug_prompt,
                 mode=mode,
                 history=history,
                 team=team_meta,
@@ -307,6 +356,13 @@ class RunExecutor:
                 deadline=deadline,
                 steer_hook=self._steer_hook(run_id),
                 cancel_hook=self._cancel_hook(run_id),
+                # **W2-02**：把 run / session 归属传下去。
+                # 此前**两处都没传** → `agent_service` 里 `self._current_run_id = None`
+                # → `record_call(run_id=None)` → `llm_calls.run_id` **恒为 NULL**
+                # → `runs.prompt_tokens / completion_tokens / llm_calls / estimated_cost`
+                #   **永远 NULL/0**，`GET /runs/{id}/cost` 恒返回空明细。
+                run_id=run_id,
+                session_id=session_id,
             )
             for event in stream:
                 etype = event.get("type")
@@ -353,11 +409,13 @@ class RunExecutor:
             flush()
             if ws_ctx_active:
                 current_run_context.set(None)
-            if slot_acquired:
-                self._semaphore.release()
+            if slot_acquired and slot_sem is not None:
+                slot_sem.release()
             reset_context(log_ctx_token)
 
-        if error:
+        # P1-07：终态优先级 —— 显式终止原因（interrupted/rejected/skipped）> error。
+        # 取消时 error 保留取消原因供 UI 展示，但终态保持 interrupted。
+        if error and final_status not in EXPLICIT_TERMINAL_STATUSES:
             final_status = "failed"
 
         # ---- 落 assistant 消息 + 收尾 ----
@@ -381,11 +439,36 @@ class RunExecutor:
         )
 
     # ------------------------------------------------------------------ #
+    # 并发预算（P3-01：交互 / 调度两套预算，互不占用）
+    # ------------------------------------------------------------------ #
+    def _acquire_slot(self, trigger: str):
+        """按触发来源取并发槽位。
+
+        - ``schedule``：用**调度预算**（2 个），满了**立即** busy（不让定时任务排队）；
+        - 其余（交互）：用**交互预算**（4 个），**排队等待**
+          （``interactive_queue_timeout`` 秒），超时才回 busy。
+
+        :return: ``(semaphore, acquired, limit)``；未获取到时 ``semaphore`` 为 ``None``。
+        """
+        if trigger == "schedule":
+            sem = self._schedule_semaphore
+            limit = settings.schedule_max_concurrent
+            return sem, sem.acquire(blocking=False), limit
+        sem = self._interactive_semaphore
+        limit = settings.interactive_max_concurrent
+        acquired = sem.acquire(
+            blocking=True, timeout=settings.interactive_queue_timeout,
+        )
+        return sem, acquired, limit
+
+    # ------------------------------------------------------------------ #
     # 阻塞执行（脚本 / 定时任务）
     # ------------------------------------------------------------------ #
     def execute_sync(self, prompt: str, **kwargs: Any) -> dict:
         """阻塞执行并返回汇总（含 run_id / session_id）。"""
-        acquired = self._semaphore.acquire(blocking=False)
+        slot_sem, acquired, _limit = self._acquire_slot(
+            str(kwargs.get("trigger") or "api"),
+        )
         if not acquired:
             return {
                 "run_id": None,
@@ -400,6 +483,7 @@ class RunExecutor:
         kwargs.setdefault("deadline", deadline)
         run_id: str | None = None
         session_id: str | None = None
+        actual_mode: str | None = None
         answer_parts: list[str] = []
         files: list[str] = []
         error: str | None = None
@@ -410,6 +494,8 @@ class RunExecutor:
                 if etype == "meta":
                     run_id = event.get("run_id")
                     session_id = event.get("session_id")
+                    # 实际执行模式（会话模式不可变，可能与请求模式不同）
+                    actual_mode = event.get("mode")
                 elif etype == "model_text":
                     answer_parts.append(event.get("content", ""))
                 elif etype == "files":
@@ -431,9 +517,12 @@ class RunExecutor:
                 "answer": "".join(answer_parts)[-4000:],
                 "model": kwargs.get("model") or settings.default_model,
                 "prompt": prompt,
+                # 实际执行的模式（不一定是请求的模式：会话模式不可变）
+                "mode": actual_mode or kwargs.get("mode") or "work",
             }
         finally:
-            self._semaphore.release()
+            if slot_sem is not None:
+                slot_sem.release()
 
     # ------------------------------------------------------------------ #
     # Plan 审批恢复执行
@@ -458,6 +547,7 @@ class RunExecutor:
             files: list[dict] = []
             steps: list[dict] = []
             error: str | None = None
+            final_status = "success"
             try:
                 team_meta = None
                 resolved = skills
@@ -480,6 +570,14 @@ class RunExecutor:
                     history=history,
                     team=team_meta,
                     plan=plan,
+                    # P1-08：恢复段必须接入与主路径**同一份** steer / cancel hook，
+                    # 否则审批通过后的那段执行既不能取消也不能转向
+                    # （此前未传 → 恢复段完全不可干预）。
+                    steer_hook=self._steer_hook(run_id),
+                    cancel_hook=self._cancel_hook(run_id),
+                    # **W2-02**：恢复段同样要归属（否则审批后的执行不计入成本）
+                    run_id=run_id,
+                    session_id=session_id,
                 )
                 last_flush = time.monotonic()
                 for event in stream:
@@ -490,6 +588,10 @@ class RunExecutor:
                         steps.append({"type": etype, **{k: v for k, v in event.items() if k != "type"}})
                     elif etype == "files":
                         files = event.get("files", [])
+                    elif etype == "interrupted":
+                        # P1-08：恢复段也支持取消 → 终态 interrupted（与主路径一致）
+                        final_status = "interrupted"
+                        error = event.get("content") or "运行已被取消"
                     elif etype == "error":
                         error = event.get("content")
                     buffer.append(event)
@@ -512,12 +614,61 @@ class RunExecutor:
                 )
             self.run_service.finish(
                 run_id,
-                "failed" if error else "success",
+                # P1-08：终态优先级同主路径 —— 显式终止原因（interrupted）> error
+                ("failed" if error else "success")
+                if final_status == "success"
+                else final_status,
                 summary=answer[:500] or (error or ""),
                 files=files,
                 error=error,
             )
 
-        thread = threading.Thread(target=_run, name=f"run-resume-{run_id[:8]}", daemon=True)
-        thread.start()
+        # P3-15：提交到**受控线程池**（非 daemon 线程）
+        # **W2-04 / AUD2-H06（审批恢复段丢 contextvars）**
+        # ``ThreadPoolExecutor`` 的工作线程**不会继承** contextvars
+        # （每个线程有独立的顶层 Context）→ 恢复段里
+        # ``unattended_context`` / ``dangerous_tools_context`` 回落为默认 ``False``
+        # → 权限 ``ask`` **不再降级为 deny**，无人值守任务会**挂在等待人工审批**上
+        # （最长 ``permission_approval_timeout=120s``），并可能被判失败触发退避；
+        # 且任务行上的 ``allow_dangerous_tools`` 在恢复段失效，与首段行为不一致。
+        #
+        # 修复：显式 ``copy_context()`` 并用 ``ctx.run`` 在该上下文里执行。
+        import contextvars as _cv
+
+        _resume_ctx = _cv.copy_context()
+        self._resume_pool.submit(_resume_ctx.run, _run)
         return True
+
+    def resume_pending_approvals(self) -> int:
+        """启动时扫描「已批准但未恢复」的 run 并重新执行（P3-15）。
+
+        恢复参数写在 ``runs.meta_json``（含 ``resume_of``），因此
+        **进程重启后仍能续跑**——此前用 daemon 线程，进程一退出执行就丢。
+        """
+        resumed = 0
+        try:
+            from app.services.run_service import RunService
+
+            runs, _total = RunService().list_runs(status="queued", page=1, page_size=200)
+        except Exception as exc:  # noqa: BLE001 - 恢复失败不应阻塞启动
+            logger.warning("扫描待恢复 run 失败: %s", exc)
+            return 0
+        for run in runs:
+            meta = dict(run.meta or {})
+            if not meta.get("resume_of"):
+                continue
+            try:
+                if self.resume_after_approval(run.id):
+                    resumed += 1
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("恢复 run %s 失败: %s", run.id, exc)
+        if resumed:
+            logger.info("已恢复 %d 个待审批续跑的 run", resumed)
+        return resumed
+
+    def close(self, wait: bool = True) -> None:
+        """优雅关闭：等待在跑的恢复任务完成（P3-15 验收②）。"""
+        try:
+            self._resume_pool.shutdown(wait=wait)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("恢复线程池关闭失败: %s", exc)

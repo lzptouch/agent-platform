@@ -1,6 +1,6 @@
 """MCP Server 管理接口。"""
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.api.deps import get_mcp_manager
 from app.schemas.mcp import (
@@ -20,6 +20,37 @@ router = APIRouter(prefix="/mcp_servers", tags=["mcp"])
 def list_servers(manager: MCPManager = Depends(get_mcp_manager)) -> McpServerListResponse:
     servers = [McpServerInfo(**s) for s in manager.list_servers()]
     return McpServerListResponse(total=len(servers), servers=servers)
+
+
+@router.get("/config", summary="MCP 两级配置（用户级 + 项目级合并结果）")
+def get_mcp_config(
+    manager: MCPManager = Depends(get_mcp_manager),
+    workspace_root: str | None = Query(default=None),
+) -> dict:
+    """**F-SCH-06**：返回两级配置的合并结果与来源摘要。
+
+    - 用户级：``~/.agent/mcp.json``；
+    - 项目级：``<workspace_root>/.agent/mcp.json``（**同名以项目级为准**）。
+    """
+    from app.services.chains.mcp.config import config_sources
+
+    manager.load_config(workspace_root)
+    return {
+        "servers": manager.config_servers(),
+        "errors": manager.config_errors(),
+        "sources": config_sources(workspace_root),
+    }
+
+
+@router.post("/config/reload", summary="重新加载两级 MCP 配置")
+def reload_mcp_config(
+    manager: MCPManager = Depends(get_mcp_manager),
+    workspace_root: str | None = Query(default=None),
+) -> dict:
+    """重新读取两级配置并清空工具缓存。"""
+    manager.load_config(workspace_root)
+    manager._tools_cache.clear()
+    return {"ok": True, "servers": sorted(manager.config_servers())}
 
 
 @router.post("/reload", summary="重新扫描 MCP Server 目录（清空工具缓存）")

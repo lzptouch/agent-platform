@@ -10,10 +10,8 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
 from app.api.deps import get_permission_service
 from app.core.errors import AppError, ErrorCode
-from app.services.permissions import DECISIONS, SCOPES
-from app.services.permissions import PermissionService as PermissionCompat
 from app.services.security import sandbox
-from app.services.security.permissions import PermissionService as Engine
+from app.services.security.permissions import DECISIONS, SCOPES, PermissionService
 
 router = APIRouter(prefix="/permissions", tags=["permissions"])
 
@@ -28,7 +26,7 @@ CHOICES = ("allow_once", "allow_session", "allow_workspace", "deny")
 def list_rules(
     scope: str | None = Query(default=None),
     workspace_id: str | None = Query(default=None),
-    permissions: PermissionCompat = Depends(get_permission_service),
+    permissions: PermissionService = Depends(get_permission_service),
 ) -> dict:
     rules = permissions.list_rules()
     if scope:
@@ -39,16 +37,19 @@ def list_rules(
 @router.put("/rules", summary="新增/更新一条规则")
 def put_rule(
     payload: dict = Body(default_factory=dict),
-    permissions: PermissionCompat = Depends(get_permission_service),
+    permissions: PermissionService = Depends(get_permission_service),
 ) -> dict:
     scope = str(payload.get("scope", "")).strip()
     pattern = str(payload.get("pattern") or payload.get("target") or "").strip()
     decision = str(payload.get("decision", "")).strip()
     risk = str(payload.get("risk", "normal")).strip()
+    # P2-17：规则可绑定到具体工作空间（此前恒写 None → 无法做工作空间级裁决）
+    raw_ws = payload.get("workspace_id")
+    workspace_id = str(raw_ws).strip() if raw_ws not in (None, "") else None
     if decision not in DECISIONS:
         raise HTTPException(status_code=422, detail=f"未知的决定: {decision}")
     try:
-        rule = permissions.set_rule(scope, pattern, decision)
+        rule = permissions.set_rule(scope, pattern, decision, workspace_id=workspace_id)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"ok": True, "rule": rule, "effective_level": permissions.effective_level()}
@@ -57,11 +58,15 @@ def put_rule(
 @router.delete("/rules", summary="删除一条规则")
 def delete_rule(
     payload: dict = Body(default_factory=dict),
-    permissions: PermissionCompat = Depends(get_permission_service),
+    permissions: PermissionService = Depends(get_permission_service),
 ) -> dict:
     scope = str(payload.get("scope", "")).strip()
     pattern = str(payload.get("pattern") or payload.get("target") or "").strip()
-    return {"ok": permissions.delete_rule(scope, pattern)}
+    # **W1-02 / AUD2-H14**：必须接收并透传 ``workspace_id`` ——
+    # 否则工作空间级规则**永远删不掉**（服务层此前恒查 ``workspace_id IS NULL``）。
+    workspace_id = payload.get("workspace_id")
+    ok = permissions.delete_rule(scope, pattern, workspace_id=workspace_id)
+    return {"ok": ok}
 
 
 # --------------------------------------------------------------------------- #
@@ -72,7 +77,7 @@ def list_decisions(
     status: str | None = Query(default=None, description="pending | resolved"),
     run_id: str | None = Query(default=None),
 ) -> dict:
-    engine = Engine.instance()
+    engine = PermissionService.instance()
     if status == "pending":
         return {"items": engine.pending_decisions()}
     # 全部决策日志（按时间倒序）
@@ -120,7 +125,7 @@ def resolve_decision(payload: dict = Body(default_factory=dict)) -> dict:
         raise HTTPException(status_code=422, detail=f"choice 必须是 {'/'.join(CHOICES)}")
 
     # critical 风险不提供「全局始终允许」
-    engine = Engine.instance()
+    engine = PermissionService.instance()
     ok = engine.resolve_decision(decision_id, choice)
     if not ok:
         raise AppError(ErrorCode.NOT_FOUND, "该审批不存在或已处理", status_code=404)
@@ -134,7 +139,6 @@ def resolve_decision(payload: dict = Body(default_factory=dict)) -> dict:
 def _persist_workspace_rule(decision_id: int) -> None:
     from app.db.base import db_session
     from app.db.models import PermissionDecisionRow
-    from app.services.permissions import PermissionService as Compat
 
     with db_session() as db:
         row = db.get(PermissionDecisionRow, decision_id)
@@ -143,7 +147,7 @@ def _persist_workspace_rule(decision_id: int) -> None:
         request = json.loads(row.request_json)
     scope, target = _decision_to_rule_scope(request)
     if scope and target:
-        Compat().set_rule(scope, target, "allow")
+        PermissionService.instance().set_rule(scope, target, "allow")
 
 
 def _decision_to_rule_scope(request: dict) -> tuple[str | None, str | None]:

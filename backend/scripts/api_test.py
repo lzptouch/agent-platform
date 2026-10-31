@@ -11,6 +11,7 @@ import asyncio
 import io
 import json
 import sys
+from urllib.parse import urlparse
 import time
 import zipfile
 from pathlib import Path
@@ -92,9 +93,45 @@ async def call(
     return data
 
 
+#: 需要显式确认才允许执行破坏性请求的路径前缀
+DESTRUCTIVE_PREFIXES = ("/api/v1/skills", "/api/v1/files", "/api/v1/research",
+                        "/api/v1/rag", "/api/v1/memories")
+
+
+def _confirm_destructive(base: str) -> bool:
+    """破坏性操作前的护栏。
+
+    **E10**：此前脚本接受 ``sys.argv[1]`` 作为 base_url 后**无条件**执行
+    DELETE / PUT / POST ingest 等写操作 → **误传生产地址即造成数据损毁**。
+
+    现在：打印目标并要求显式 ``--yes-i-know``；非回环地址**即使带旗标也要二次确认**。
+    """
+    if "--yes-i-know" in sys.argv:
+        host = urlparse(base).hostname or ""
+        if host not in ("127.0.0.1", "localhost", "::1", ""):
+            print(f"[api_test] ⚠ 目标 {base} **不是**本机地址 —— 请再次输入该地址以确认：", end="")
+            try:
+                answer = input().strip()
+            except EOFError:
+                return False
+            if answer != base:
+                print("[api_test] ✗ 目标不匹配，已中止")
+                return False
+        return True
+    print(f"[api_test] ✗ 该脚本会对 **{base}** 执行破坏性操作（DELETE / PUT / ingest）。")
+    print("[api_test]   确认无误后追加 --yes-i-know 重新运行。")
+    return False
+
+
 async def main() -> int:
+    # **E10**：破坏性操作护栏（必须在任何请求之前）
+    if not _confirm_destructive(BASE):
+        print("[api_test] ✗ 已中止")
+        return 2
+
     timeout = httpx.Timeout(200.0, connect=10.0)
     async with httpx.AsyncClient(timeout=timeout) as client:
+
         # ============ 1. 系统与模型 ============
         print("\n--- 系统 / 模型 / 状态 ---")
         h = await call(client, "GET", "/health", label="健康检查")

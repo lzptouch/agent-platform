@@ -52,8 +52,13 @@ export const usePermissionsStore = defineStore('permissions', () => {
     await refresh()
   }
 
-  async function deleteRule(scope: string, pattern: string): Promise<void> {
-    await permissionRuleDelete({ scope, pattern })
+  async function deleteRule(scope: string, pattern: string, workspaceId?: string): Promise<void> {
+    // **W4-01**：后端返回 `{ok}` —— 此前**不检查 ok** → 删除失败时用户**看不到任何反馈**
+    // （规则还在列表里，看起来像"删了又回来"）。
+    const res = await permissionRuleDelete({ scope, pattern, workspace_id: workspaceId })
+    if (res && res.ok === false) {
+      throw new Error('规则删除失败（可能已被删除或工作空间不匹配）')
+    }
     await refresh()
   }
 

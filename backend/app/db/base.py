@@ -16,6 +16,7 @@ from sqlalchemy import event, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm.exc import StaleDataError
 from sqlalchemy.pool import NullPool
 
 from app.core.config import settings
@@ -111,11 +112,23 @@ def db_session() -> Iterator[Session]:
 
 
 def retry_on_locked(fn: Callable[[], T], attempts: int = 3) -> T:
-    """SQLite 写锁重试：指数退避 50/100/200ms。"""
+    """SQLite 写锁 / 乐观锁冲突重试：指数退避 50/100/200ms。
+
+    **W2-03**：此前只捕获 ``OperationalError``（且只认文本里含 "locked"）→
+    乐观锁版本冲突抛的 ``StaleDataError`` **直接冒泡** → 端点返回 500。
+    现在一并捕获并重试（重试会重新取行、拿到新版本）。
+    """
     delay = 0.05
     for i in range(attempts):
         try:
             return fn()
+        except StaleDataError:
+            # 乐观锁版本冲突：重试（``fn`` 内部会重新读行）
+            if i < attempts - 1:
+                time.sleep(delay)
+                delay *= 2
+                continue
+            raise
         except OperationalError as exc:
             if "locked" in str(exc).lower() and i < attempts - 1:
                 time.sleep(delay)

@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { parseSseBuffer, toBackendEvent } from "./backend-events";
+import { createReconnectGate, parseSseBuffer, toBackendEvent } from "./backend-events";
 
 describe("parseSseBuffer", () => {
   it("解析单条完整事件", () => {
@@ -70,5 +70,38 @@ describe("toBackendEvent", () => {
   it("类型与后端一致：透传未知类型", () => {
     const ev = toBackendEvent({ id: 4, type: "custom_event" });
     expect(ev.type).toBe("custom_event");
+  });
+});
+
+describe("单飞重连闸门（**D10**）", () => {
+  it("同一时刻只挂一个重连定时器", () => {
+    vi.useFakeTimers();
+    try {
+      const gate = createReconnectGate();
+      let count = 0;
+      expect(gate.schedule(100, () => (count += 1))).toBe(true);
+      expect(gate.schedule(100, () => (count += 1))).toBe(false);
+      expect(gate.pending()).toBe(true);
+      vi.advanceTimersByTime(100);
+      expect(count).toBe(1);
+      expect(gate.pending()).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("cancel 能取消待触发的重连", () => {
+    vi.useFakeTimers();
+    try {
+      const gate = createReconnectGate();
+      let count = 0;
+      gate.schedule(100, () => (count += 1));
+      gate.cancel();
+      vi.advanceTimersByTime(500);
+      expect(count).toBe(0);
+      expect(gate.pending()).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -16,6 +16,7 @@ import json
 import os
 import socket
 import subprocess
+import tempfile
 import sys
 import time
 import urllib.error
@@ -83,32 +84,161 @@ def kill_tree(proc: subprocess.Popen) -> None:
         proc.kill()
 
 
+def kill_hard(proc: subprocess.Popen) -> None:
+    """**硬杀**（SIGKILL，不可捕获）——模拟「崩溃 / 强杀」。
+
+    **P6-07**：验证「异常终止必留 run-state」必须用 SIGKILL；
+    SIGTERM 属于**正常终止信号**（应用会走退出清理 → 删除 run-state），
+    用它验证不了这条语义。
+    """
+    if proc.poll() is not None:
+        return
+    if os.name == "nt":
+        subprocess.run(
+            ["taskkill", "/T", "/F", "/PID", str(proc.pid)],
+            capture_output=True, encoding="utf-8", errors="replace",
+        )
+    else:
+        proc.kill()
+    try:
+        proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        pass
+
+
+def detect_package_dir() -> Path:
+    """按平台探测已打包目录。
+
+    **此前硬编码 ``release/win-unpacked``** → 在 macOS/Linux 上**必然失败**，
+    导致「macOS 安装包是零验证的发布面」（`doc/testing/00` §0 的第 3 条）。
+    """
+    release = REPO_ROOT / "frontend" / "desktop" / "release"
+    if os.name == "nt":
+        candidates = [release / "win-unpacked"]
+    elif sys.platform == "darwin":
+        # macOS 的「包目录」是 .app 本身（可执行文件在 Contents/MacOS/ 内）
+        candidates = []
+        for arch_dir in sorted(release.glob("mac-*")):
+            app = arch_dir / "Agent Desktop.app"
+            if app.exists():
+                candidates.append(app)
+    else:
+        candidates = [release / "linux-unpacked"]
+    for cand in candidates:
+        if cand.exists():
+            return cand
+    return release
+
+
+def resources_dir(pkg_dir: Path) -> Path:
+    """资源目录：macOS 在 ``Contents/Resources``，其余平台在 ``resources``。"""
+    mac = pkg_dir / "Contents" / "Resources"
+    return mac if mac.exists() else pkg_dir / "resources"
+
+
+def executable_of(pkg_dir: Path) -> Path:
+    """主程序路径：macOS 在 ``Contents/MacOS/``，其余在包根。"""
+    if os.name == "nt":
+        return pkg_dir / "Agent Desktop.exe"
+    mac = pkg_dir / "Contents" / "MacOS" / "Agent Desktop"
+    return mac if mac.exists() else pkg_dir / "Agent Desktop"
+
+
+def runtime_python_of(res_dir: Path) -> Path:
+    """随包运行时的 Python 解释器（Windows 是 ``python.exe``，其余是 ``bin/python3``）。"""
+    if os.name == "nt":
+        return res_dir / "runtime" / "python.exe"
+    return res_dir / "runtime" / "bin" / "python3"
+
+
+
+def check_signature(exe: Path) -> tuple[bool, str]:
+    """P6-02：检查产物签名状态。
+
+    **路 B 决议**：当前无可用签名证书（Apple Developer / 代码签名证书），
+    因此产物**未签名**。但签名状态**必须被显式记录**——不能默默放过
+    （未签名 → macOS Gatekeeper 拦截、Windows SmartScreen 告警）。
+
+    :return: ``(signed, detail)``
+    """
+    import shutil
+    import subprocess
+
+    if os.name == "nt":
+        # Windows：Get-AuthenticodeSignature
+        ps = (
+            "$sig = Get-AuthenticodeSignature -LiteralPath '%s'; "
+            "if ($sig.Status -eq 'Valid') { 'VALID' } else { $sig.Status.ToString() }"
+            % str(exe).replace("'", "''")
+        )
+        try:
+            out = subprocess.run(
+                ["powershell", "-NoProfile", "-Command", ps],
+                capture_output=True, text=True, timeout=60,
+            )
+            status = (out.stdout or "").strip().splitlines()[-1] if out.stdout else ""
+            return status.upper() == "VALID", status or "无法读取签名状态"
+        except Exception as exc:  # noqa: BLE001
+            return False, f"签名检查失败：{exc}"
+
+    # macOS：codesign
+    codesign = shutil.which("codesign")
+    if not codesign:
+        return False, "未找到 codesign（无法校验签名）"
+    try:
+        out = subprocess.run(
+            [codesign, "-dv", str(exe)],
+            capture_output=True, text=True, timeout=60,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return False, f"签名检查失败：{exc}"
+    detail = (out.stderr or out.stdout or "").strip().splitlines()
+    signed = "Signature=adhoc" not in detail and any(
+        line.startswith("Signature=") for line in detail
+    )
+    note = next(
+        (line.strip() for line in detail if line.startswith("Signature=")), "无签名信息",
+    )
+    return signed, note
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dir", default="frontend/desktop/release/win-unpacked", help="已打包目录")
+    parser.add_argument("--dir", default=None, help="已打包目录（默认按平台自动探测）")
     parser.add_argument("--timeout", type=float, default=90.0, help="启动与握手的等待上限（秒）")
     args = parser.parse_args()
 
-    pkg_dir = (REPO_ROOT / args.dir).resolve()
-    exe = pkg_dir / ("Agent Desktop.exe" if os.name == "nt" else "Agent Desktop")
+    pkg_dir = (REPO_ROOT / args.dir).resolve() if args.dir else detect_package_dir()
+    exe = executable_of(pkg_dir)
     if not exe.exists():
         record("安装目录存在且含主程序", False, f"未找到 {exe}")
         return 1
     record("安装目录存在且含主程序", True, str(pkg_dir))
 
-    runtime_py = pkg_dir / "resources" / "runtime" / "python.exe"
+    res_dir = resources_dir(pkg_dir)
+    runtime_py = runtime_python_of(res_dir)
     record("运行时已随包（resources/runtime）", runtime_py.exists(), str(runtime_py))
-    frontend = pkg_dir / "resources" / "frontend" / "index.html"
+    frontend = res_dir / "frontend" / "index.html"
     record("前端产物已随包（resources/frontend）", frontend.exists(), str(frontend))
 
-    run_state = user_data_dir() / "run-state.json"
-    if run_state.exists():
-        run_state.unlink()
+    # P6-02：签名状态**显式记录**（路 B：未签名也要被记录，不能默默放过）
+    signed, sig_detail = check_signature(exe)
+    record(
+        "签名状态已记录（未签名亦记）",
+        True,
+        f"{'已签名' if signed else '未签名'}：{sig_detail}",
+    )
+
+    # 独立 userData：**必须隔离**——共用会触发单实例锁，新实例静默退出，
+    # 实际被测的是上一个残留实例（`doc/testing/00` §2.4 的工具禁忌）。
+    ud_dir = Path(tempfile.mkdtemp(prefix="agent-verify-ud-"))
+    run_state = ud_dir / "run-state.json"
 
     cdp_port = free_port()
     env = {k: v for k, v in os.environ.items() if k != "ELECTRON_RUN_AS_NODE"}
+    env["AGENT_DESKTOP_USER_DATA"] = str(ud_dir)
     proc = subprocess.Popen(
-        [str(exe), f"--remote-debugging-port={cdp_port}"],
+        [str(exe), f"--remote-debugging-port={cdp_port}", f"--user-data-dir={ud_dir}"],
         cwd=str(pkg_dir),
         env=env,
         stdout=subprocess.DEVNULL,
@@ -171,7 +301,8 @@ def main() -> int:
 
         # 5) 强制结束后：run-state 允许残留（强杀不走优雅退出），
         #    但**下次启动必须回收孤儿**——这才是该文件存在的意义
-        kill_tree(proc)
+        # P6-07：硬杀（SIGKILL）模拟崩溃 → run-state **必须残留**
+        kill_hard(proc)
         deadline = time.time() + 15
         while time.time() < deadline and run_state.exists():
             time.sleep(0.5)
@@ -189,10 +320,18 @@ def main() -> int:
         )
 
         # 5.1) 重新启动：必须写出新的 run-state，且旧 pid 不再存活（孤儿被回收）
+        # P6-07：第二次启动必须用**同一 userData**——
+        # 否则它写的是默认目录的 run-state，自检检查的却是自检目录 → 永远读不到新值。
+        env2 = {k: v for k, v in os.environ.items() if k != "ELECTRON_RUN_AS_NODE"}
+        env2["AGENT_DESKTOP_USER_DATA"] = str(ud_dir)
         proc2 = subprocess.Popen(
-            [str(exe), f"--remote-debugging-port={free_port()}"],
+            [
+                str(exe),
+                f"--remote-debugging-port={free_port()}",
+                f"--user-data-dir={ud_dir}",
+            ],
             cwd=str(pkg_dir),
-            env={k: v for k, v in os.environ.items() if k != "ELECTRON_RUN_AS_NODE"},
+            env=env2,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )

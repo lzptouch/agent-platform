@@ -18,6 +18,20 @@ export const RESTART_BREAKER_THRESHOLD = 3;
 /** 崩溃重启的退避序列（毫秒）。 */
 export const RESTART_BACKOFF_MS = [1_000, 2_000, 4_000];
 
+/**
+ * 后端需**持续健康**多久才复位「连续失败」计数（毫秒）。
+ *
+ * 熔断计数**不能**在握手成功时清零：后端「起来 → 秒崩」时每次握手都成功，
+ * 一清零就等于熔断永不触发。只有连续健康超过该时长，才认为这次启动真的稳住了。
+ */
+export const HEALTHY_RESET_MS = 60_000;
+
+/** 补跑窗口（小时）：休眠唤醒后补跑错过任务的时间范围。 */
+export const MISSED_WINDOW_HOURS = 6;
+
+/** 补跑窗口小时数注入后端用的环境变量名（后端读它 → desktop_missed_window_hours）。 */
+export const ENV_MISSED_WINDOW_HOURS = "AGENT_DESKTOP_MISSED_WINDOW_HOURS";
+
 /** 注入给后端的环境变量名。 */
 export const ENV = {
   desktop: "AGENT_DESKTOP",
@@ -27,7 +41,6 @@ export const ENV = {
   dataDir: "AGENT_DATA_DIR",
   workspaceDir: "AGENT_WORKSPACE_DIR",
   frontendDist: "AGENT_FRONTEND_DIST",
-  missedWindowHours: "AGENT_DESKTOP_MISSED_WINDOW_HOURS",
   playwrightBrowsersPath: "PLAYWRIGHT_BROWSERS_PATH",
 } as const;
 
@@ -35,7 +48,6 @@ export const ENV = {
 export const PATHS = {
   bootstrap: "/__desktop/bootstrap",
   ping: "/__desktop/ping",
-  health: "/api/v1/health",
   events: "/api/v1/desktop/events",
   shutdown: "/api/v1/desktop/shutdown",
 } as const;

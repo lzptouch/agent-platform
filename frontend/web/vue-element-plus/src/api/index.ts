@@ -4,7 +4,7 @@
  */
 
 import { Endpoints } from './endpoints'
-import { get, post, put, patch, del, upload, request } from './client'
+import { get, post, put, patch, del, upload, request, delWithBody} from './client'
 import type {
   HealthResp, ModelsResp, AgentStatusResp, RunResult, AgentEvent,
   SkillListResp, SkillDetail, ValidationResult, SkillMeta,
@@ -66,8 +66,11 @@ export interface PermissionRulesResp {
 export const permissionRules = () => get<PermissionRulesResp>(Endpoints.permissionRules)
 export const permissionRuleSet = (payload: { scope: string; pattern: string; decision: string; risk?: string }) =>
   put<{ ok: boolean; effective_level: string }>(Endpoints.permissionRules, payload)
-export const permissionRuleDelete = (payload: { scope: string; pattern: string }) =>
-  del<{ ok: boolean }>(Endpoints.permissionRules, payload as never)
+export const permissionRuleDelete = (payload: { scope: string; pattern: string; workspace_id?: string }) =>
+  // **W4-01**：此前用 `del(path, payload as never)` —— `del` 的第二参是 RequestOptions
+  // 而非请求体 → body 为 undefined → 后端收到空 body → 规则永远删不掉。
+  // `as never` 把这个**编译期错误**静音了。现改用 `delWithBody`。
+  delWithBody<{ ok: boolean }>(Endpoints.permissionRules, payload)
 export const permissionDecisions = (params?: { status?: string; run_id?: string }) =>
   get<{ items: PermissionDecisionItem[] }>(
     Endpoints.permissionDecisions + (params ? '?' + new URLSearchParams(params as Record<string, string>) : ''),
@@ -77,7 +80,7 @@ export const permissionResolve = (payload: { decision_id: number; choice: string
 // 工作空间与产物（S3）
 export interface WorkspaceItem { id: string; name: string; root_path: string; status: string; created_at: string }
 export interface ChangeItem { id: number; path: string; op: string; before_hash: string | null; after_hash: string | null; snapshot_ref: string | null; tool: string; size_before: number | null; size_after: number | null; created_at: string }
-export interface ArtifactItem { id: number; path: string; title: string | null; mime: string | null; kind: string; size: number | null; previewable: boolean; created_at: string }
+export interface ArtifactItem { id: number; path: string; title: string | null; mime: string | null; kind: string; size: number | null; previewable: boolean; created_at: string; /** F-UX-02：浏览器类产物的来源页面地址 */ url?: string | null }
 export const workspacesList = (includeArchived = false) =>
   get<{ items: WorkspaceItem[]; current: string | null }>(Endpoints.workspaces + (includeArchived ? '?include_archived=true' : ''))
 export const workspaceCreate = (payload: { name: string; root_path?: string }) =>
@@ -86,6 +89,12 @@ export const workspaceSwitch = (id: string) => post<{ ok: boolean; current: stri
 export const workspaceArchive = (id: string) => post<{ ok: boolean }>(Endpoints.workspaceArchive(id), {})
 export const runChanges = (runId: string) => get<{ items: ChangeItem[] }>(Endpoints.runChanges(runId))
 export const runArtifacts = (runId: string) => get<{ items: ArtifactItem[] }>(Endpoints.runArtifacts(runId))
+// P2-21：产物另存（Web 态）
+export const runArtifactSaveAs = (runId: string, artifactId: number, dest: string) =>
+  post<{ ok: boolean; path?: string }>(Endpoints.runArtifactSaveAs(runId, artifactId), { dest })
+// P2-21：产物下载 URL（桌面态原生对话框用）
+export const runArtifactDownloadUrl = (runId: string, artifactId: number): string =>
+  Endpoints.runArtifactDownload(runId, artifactId)
 export const changeDiff = (id: number) => get<{ kind: string; diff?: string; summary?: string; path: string }>(Endpoints.changeDiff(id))
 export const changeRevert = (id: number, workspaceId?: string) =>
   post<{ reverted: string }>(Endpoints.changeRevert(id), workspaceId ? { workspace_id: workspaceId } : {})
@@ -337,4 +346,4 @@ export const boardItems = (boardId: string) => get<{ items: BoardItem[] }>(Endpo
 export const boardItemCreate = (boardId: string, payload: { title: string; detail?: string; deps?: number[] }) =>
   post<BoardItem>(Endpoints.boardItems(boardId), payload)
 export const boardItemComplete = (boardId: string, itemId: number, result?: Record<string, unknown>) =>
-  post<{ items: BoardItem[] }>(Endpoints.boardItem(boardId, itemId), { result })
+  post<{ items: BoardItem[] }>(Endpoints.boardItemComplete(boardId, itemId), { result })

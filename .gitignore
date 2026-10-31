@@ -13,17 +13,30 @@ venv/
 
 # 构建产物与运行日志
 dist/
-^build/                     # 只忽略仓库根的 build/；frontend/desktop/build/** 曾被此规则误屏蔽
-frontend/desktop/release/       # electron-builder 产物（安装包），不得入库
-frontend/desktop/dist-main/     # 壳编译产物
-frontend/desktop/dist-preload/  # 壳 preload 编译产物
-frontend/desktop/.stage/        # portable Python 运行时暂存
+# 只忽略仓库根的 build/。
+# **注意**：gitignore **不支持行尾注释**——注释必须独占一行，
+# 否则整行（含注释文字）都会被当作模式，规则永不生效。
+/build/
+frontend/desktop/release/
+# electron-builder 产物（安装包），不得入库
+frontend/desktop/dist-main/
+# 壳编译产物
+frontend/desktop/dist-preload/
+# 壳 preload 编译产物
+frontend/desktop/.stage/
+# portable Python 运行时暂存
 *.log
 outputs/
 .tmp/
-.pytest_tmp/           # pytest --basetemp 隔离目录
-tests/report/          # 端到端测试产物（截图 / trace / 报告）
-tests/.work/           # 端到端测试临时数据
+.pytest_tmp/
+# pytest --basetemp 隔离目录（根与 backend/ 两处都会被命中）
+backend/.pytest_tmp/
+# 分层测试的 SQLite 层库（.db / -wal / -shm）
+tests/.layer_dbs/
+tests/report/
+# 端到端测试产物（截图 / trace / 报告）
+tests/.work/
+# 端到端测试临时数据
 
 # 运行时数据（SQLite 数据库 / 向量库 / 产物 / 上传 / 自定义 Skill）
 backend/data/

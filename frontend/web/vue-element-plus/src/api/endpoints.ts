@@ -101,6 +101,11 @@ export const Endpoints = {
   workspaceSwitch:  (id: string) => `${API_BASE}/workspaces/${encodeURIComponent(id)}/switch`,
   workspaceArchive: (id: string) => `${API_BASE}/workspaces/${encodeURIComponent(id)}/archive`,
   runChanges:       (runId: string) => `${API_BASE}/runs/${encodeURIComponent(runId)}/changes`,
+  // P2-21：产物另存（Web 态）与下载（桌面态原生对话框用）
+  runArtifactSaveAs: (runId: string, artifactId: number) =>
+    `${API_BASE}/runs/${encodeURIComponent(runId)}/artifacts/${artifactId}/save-as`,
+  runArtifactDownload: (runId: string, artifactId: number) =>
+    `${API_BASE}/runs/${encodeURIComponent(runId)}/artifacts/${artifactId}/download`,
   runCost:          (runId: string) => `${API_BASE}/runs/${encodeURIComponent(runId)}/cost`,
   costEstimate:     `${API_BASE}/cost/estimate`,
   sessionContext:   (id: string) => `${API_BASE}/sessions/${encodeURIComponent(id)}/context`,
@@ -115,6 +120,10 @@ export const Endpoints = {
   pluginRollback:   `${API_BASE}/plugins/rollback`,
   boardItems:       (boardId: string) => `${API_BASE}/boards/${encodeURIComponent(boardId)}/items`,
   boardItem:        (boardId: string, itemId: number) => `${API_BASE}/boards/${encodeURIComponent(boardId)}/items/${itemId}`,
+  // 完成任务是**独立端点**（POST /items/{item_id}/complete），不是对
+  // /items/{item_id} 发 POST——后者只有 GET，打过去必然 404。
+  boardItemComplete: (boardId: string, itemId: number) =>
+    `${API_BASE}/boards/${encodeURIComponent(boardId)}/items/${itemId}/complete`,
   boardMessages:    (boardId: string) => `${API_BASE}/boards/${encodeURIComponent(boardId)}/messages`,
   runArtifacts:     (runId: string) => `${API_BASE}/runs/${encodeURIComponent(runId)}/artifacts`,
   changeDiff:       (id: number) => `${API_BASE}/changes/${id}/diff`,

@@ -36,10 +36,26 @@ suite = Suite("desktop", "Agent Desktop（Electron 壳 + FastAPI sidecar）")
 # 环境探测
 # --------------------------------------------------------------------------- #
 def electron_binary() -> Path | None:
-    exe = DESKTOP_DIR / "node_modules" / "electron" / "dist" / (
-        "electron.exe" if os.name == "nt" else "electron"
-    )
-    return exe if exe.exists() else None
+    """Electron 运行时可执行文件。
+
+    三种布局都要认：
+      - Windows：``dist/electron.exe``
+      - Linux：  ``dist/electron``
+      - macOS：  ``dist/Electron.app/Contents/MacOS/Electron``
+
+    早前只写了前两种，macOS 上永远返回 None，
+    于是 3 个真机用例在 macOS 上**一直"因环境不具备"跳过**——
+    覆盖率缺口被伪装成了环境问题。
+    """
+    dist = DESKTOP_DIR / "node_modules" / "electron" / "dist"
+    candidates = [
+        dist / ("electron.exe" if os.name == "nt" else "electron"),
+        dist / "Electron.app" / "Contents" / "MacOS" / "Electron",
+    ]
+    for exe in candidates:
+        if exe.exists():
+            return exe
+    return None
 
 
 def electron_app_dir() -> Path | None:
@@ -101,8 +117,30 @@ def test_desk_02_gitignore_rules():
     """DESK-02 桌面端产物在干净克隆里也会被忽略。"""
     root_ignore = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
     assert "frontend/desktop/release/" in root_ignore, "根 .gitignore 未忽略 frontend/desktop/release/"
-    assert "^build/" in root_ignore, "根 .gitignore 未把 build/ 根锚定（会误屏蔽 frontend/desktop/build/**）"
-    suite.ok("DESK-02", "忽略规则已并入被跟踪的根 .gitignore", "静态")
+    # **P5-10 修正**：此前断言 ``^build/`` —— 那是**非法**的 gitignore 锚定语法
+    # （git 视 ``^`` 为字面量），等于把 bug 当成了规范。
+    # 正确写法是 ``/build/``（根锚定）；并且 gitignore **不支持行尾注释**
+    # （注释必须独占一行，否则整行含注释文字都会被当作模式 → 规则永不生效）。
+    assert "/build/" in root_ignore, "根 .gitignore 未把 build/ 根锚定（应写 `/build/`）"
+    assert "^build/" not in root_ignore, "仍使用非法的 `^build/` 锚定"
+    for rule in root_ignore.split("\n"):
+        rule = rule.strip()
+        if rule and not rule.startswith("#"):
+            assert "#" not in rule, f"规则行含行尾注释（永不生效）: {rule!r}"
+
+    # **实跑** git check-ignore（P5-10：此前只有字符串断言）
+    def _ignored(path: str) -> bool:
+        proc = subprocess.run(
+            ["git", "check-ignore", "-q", path],
+            cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=60,
+        )
+        return proc.returncode == 0
+
+    assert _ignored("build/foo.txt"), "仓库根 build/ 未被忽略"
+    assert not _ignored("frontend/desktop/build/main.js"), (
+        "前端 build 被根规则误屏蔽"
+    )
+    suite.ok("DESK-02", "忽略规则已并入被跟踪的根 .gitignore（实跑 check-ignore 验证）", "实跑")
 
 
 def test_desk_03_shell_unit_tests_pass():
@@ -239,16 +277,31 @@ class _Runtime:
         return None
 
     def run_state_path(self) -> Path:
-        """Electron 的 userData 目录名取自 package.json 的 productName（回退 name）。"""
-        appdata = Path(os.environ.get("APPDATA") or os.environ.get("HOME") or "")
+        """Electron 的 userData 目录 + package.json 的 productName（回退 name）。
+
+        各平台的 userData 位置不同，早前这里一律按 ``$HOME/<productName>`` 找，
+        只在 Windows（APPDATA）恰好成立：
+          - macOS：``~/Library/Application Support/<productName>``
+          - Linux：``~/.config/<productName>``
+          - Windows：``%APPDATA%/<productName>``
+        结果就是 macOS 上明明生成了 run-state.json，用例却报"未生成"。
+        """
         pkg = json.loads((DESKTOP_DIR / "package.json").read_text(encoding="utf-8"))
-        for name in (pkg.get("productName"), pkg.get("name")):
-            if not name:
-                continue
-            candidate = appdata / name / "run-state.json"
-            if candidate.exists():
-                return candidate
-        return appdata / (pkg.get("productName") or pkg.get("name") or "agent-desktop") / "run-state.json"
+        names = [n for n in (pkg.get("productName"), pkg.get("name")) if n]
+        if os.name == "nt":
+            roots = [Path(os.environ.get("APPDATA") or Path.home() / "AppData" / "Roaming")]
+        elif sys.platform == "darwin":
+            roots = [Path.home() / "Library" / "Application Support"]
+        else:
+            roots = [Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")]
+        for root in roots:
+            for name in names:
+                candidate = root / name / "run-state.json"
+                if candidate.exists():
+                    return candidate
+        # 兜底：返回首选路径，让断言报出"确实期望在哪"
+        base = roots[0] if roots else Path.home()
+        return base / (names[0] if names else "agent-desktop") / "run-state.json"
 
 
 def _free_port() -> int:

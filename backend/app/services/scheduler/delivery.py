@@ -21,7 +21,10 @@ logger = logging.getLogger(__name__)
 CHANNELS = ("local", "webhook", "mobile")
 
 #: 载荷里必须带的字段（任务名、状态、耗时、摘要、产物链接）
+#: 载荷中**必须存在**的字段（值可以是 0 / "" / []）
 REQUIRED_PAYLOAD_FIELDS = ("task_name", "status", "duration_ms", "summary", "artifacts")
+#: 载荷中**必须非空**的字段（空串视为缺失）
+NON_EMPTY_PAYLOAD_FIELDS = ("task_name", "status")
 
 
 @dataclass(frozen=True)
@@ -95,8 +98,31 @@ class DeliveryResult:
 
 
 def validate_payload(payload: DeliveryPayload) -> list[str]:
-    """校验载荷字段齐全（缺一即列出）。"""
-    missing = [f for f in REQUIRED_PAYLOAD_FIELDS if not getattr(payload, f, None)]
+    """校验载荷字段齐全（缺一即列出）。
+
+    **W9-01 / AUD2-H07 修复（此前所有通知 100% 被拒）**
+
+    旧实现是 ``not getattr(payload, f, None)`` —— 把「**值为空**」当成「**字段缺失**」：
+
+    - ``duration_ms``：``execute_sync()`` 的返回字典里**根本没有** ``duration_ms``
+      （只有 run_id/session_id/finished/files/error/answer/model/prompt/mode）
+      → 恒为 ``0`` → ``not 0`` 为真 → 判为缺字段 → **每次投递都直接返回 ok=False**；
+    - ``summary``：无回答时为 ``""`` → 同样判为缺字段；
+    - ``artifacts``：无产物时为 ``[]`` → 同样判为缺字段。
+
+    结果：**webhook / 桌面通知一次都发不出去**，而 `F-SCH-02/03/04` 标 ✅。
+
+    现在区分两类约束：
+    - **必须存在**：5 个字段都要有（``hasattr``）；
+    - **必须非空**：只有 ``task_name`` / ``status``（其余允许 0 / "" / []）。
+    """
+    missing: list[str] = []
+    for field in REQUIRED_PAYLOAD_FIELDS:
+        if not hasattr(payload, field):
+            missing.append(field)
+    for field in NON_EMPTY_PAYLOAD_FIELDS:
+        if hasattr(payload, field) and not getattr(payload, field, None):
+            missing.append(field)
     return missing
 
 
@@ -109,12 +135,21 @@ def deliver(
 ) -> DeliveryResult:
     """投递一次（带重试；失败写事件，**不改任务状态**）。"""
     if not config.enabled:
-        return DeliveryResult(ok=False, channel=config.type, target=config.target,
-                              error="通道已禁用")
+        result = DeliveryResult(ok=False, channel=config.type, target=config.target,
+                                 error="通道已禁用")
+        # **W9-01 / AUD2-M08**：早退路径也要触发 on_failure
+        # （此前「通道禁用」「载荷缺字段」直接 return，调用方拿不到失败通知，
+        #   而真正发送失败时是会调的 —— 语义不一致）。
+        if on_failure:
+            on_failure(result)
+        return result
     missing = validate_payload(payload)
     if missing:
-        return DeliveryResult(ok=False, channel=config.type, target=config.target,
-                              error=f"载荷缺字段: {', '.join(missing)}")
+        result = DeliveryResult(ok=False, channel=config.type, target=config.target,
+                                 error=f"载荷缺字段: {', '.join(missing)}")
+        if on_failure:
+            on_failure(result)
+        return result
 
     attempt = 0
     last_error: str | None = None
@@ -135,9 +170,28 @@ def deliver(
                             attempts=attempt, error=last_error)
     if on_failure:
         on_failure(result)
+    # **W9-01 / AUD2-M07**：webhook URL 本身即凭据（企微/飞书/钉钉的 `?key=SECRET`），
+    # 原样落盘与模块头部「凭证不写日志正文」的约定自相矛盾 → 只记 host+path。
     logger.warning("投递失败（%s → %s）：%s（已重试 %d 次）",
-                   config.type, config.target, last_error, attempt)
+                   config.type, _safe_target(config.target), last_error, attempt)
     return result
+
+
+def _safe_target(target: str) -> str:
+    """把投递目标脱敏（webhook URL 的 query 即凭据）。"""
+    if not target:
+        return target
+    if "://" not in target:
+        return target
+    try:
+        from urllib.parse import urlsplit
+
+        parts = urlsplit(target)
+        if not parts.query:
+            return target
+        return f"{parts.scheme}://{parts.netloc}{parts.path}?***"
+    except Exception:  # noqa: BLE001
+        return "<invalid target>"
 
 
 def _send_once(config: DeliveryConfig, payload: DeliveryPayload) -> bool:

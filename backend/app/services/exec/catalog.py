@@ -17,7 +17,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 #: 常驻的核心工具（Schema 直接注入，保证基本能力随时可用）
-CORE_TOOLS = ("read_file", "list_directory", "write_file")
+#: 默认注入的工具集。
+#:
+#: **必须包含两个引导工具**（``tool_search`` / ``tool_load``）——
+#: 否则模型**无法调用引导工具**去装载其他工具（非核心工具全部不可达），
+#: 而 prompt 又要求「先 tool_search 再 tool_load」→ 提示与工具集自相矛盾。
+CORE_TOOLS = (
+    "read_file", "list_directory", "write_file",
+    "tool_search", "tool_load",
+)
 
 #: 工具搜索 / 装载工具本身的定义
 TOOL_SEARCH_DEF: dict = {
@@ -139,6 +147,20 @@ class ToolLoader:
     @property
     def loaded(self) -> set[str]:
         return set(self._loaded)
+
+    @property
+    def all_tools(self) -> list[dict]:
+        """当前可装载的全部工具（供 ``tool_load`` 回查 Schema）。"""
+        return list(self._by_name.values())
+
+    def refresh(self, all_tools: list[dict]) -> None:
+        """同步工具集变化（保留已装载标记）。
+
+        **P2-02**：工具集可能随 ``enable_mcp`` / ``enable_rag`` 等开关变化，
+        需要在每轮开始时同步映射，但**不能丢掉已装载状态**——否则
+        「第二轮起工具集不再变化」的问题会重现。
+        """
+        self._by_name = {str(t.get("name")): t for t in all_tools}
 
     def load(self, names: list[str]) -> list[dict]:
         """装载指定工具的 Schema（重复装载幂等）。"""

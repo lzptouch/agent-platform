@@ -142,6 +142,14 @@ export const post = <T>(path: string, body?: unknown, opts?: Omit<RequestOptions
   request<T>(path, { ...opts, method: 'POST', body })
 export const del  = <T>(path: string, opts?: Omit<RequestOptions, 'method'|'body'|'formData'>) =>
   request<T>(path, { ...opts, method: 'DELETE' })
+/** DELETE **带请求体**（部分端点用 body 传参，如删除权限规则）。
+ *
+ * **W4-01 / AUD2-H36**：此前 `del()` 的第二参是 `RequestOptions`（**不是请求体**），
+ * 调用方却把 payload 当 options 展开 → body 为 undefined → 后端收到空 body →
+ * 规则**永远删不掉**，且前端不检查 `ok`、用户**看不到任何反馈**。
+ */
+export const delWithBody = <T>(path: string, body?: unknown, opts?: Omit<RequestOptions, 'method'|'body'|'formData'>) =>
+  request<T>(path, { ...opts, method: 'DELETE', body })
 export const put  = <T>(path: string, body?: unknown, opts?: Omit<RequestOptions, 'method'|'body'|'formData'>) =>
   request<T>(path, { ...opts, method: 'PUT', body })
 export const patch = <T>(path: string, body?: unknown, opts?: Omit<RequestOptions, 'method'|'body'|'formData'>) =>

@@ -68,9 +68,25 @@
     </div>
 
     <!-- 错误提示条（计划 §8.7：异常不得清空输入） -->
+    <div v-if="busyBanner" class="error-bar busy-bar">
+      <el-icon><InfoFilled /></el-icon><span>{{ busyBanner }}</span>
+      <el-button size="small" text @click="busyBanner = ''">关闭</el-button>
+    </div>
     <div v-if="errorBanner" class="error-bar">
       <el-icon><Warning /></el-icon><span>{{ errorBanner }}</span>
       <el-button size="small" text @click="errorBanner = ''">关闭</el-button>
+    </div>
+
+    <!-- P4-01：记忆条目（反思模式注入的记忆调用可见） -->
+    <div v-if="memoryItems.length" class="memory-strip">
+      <span class="memory-strip__label">记忆注入（{{ memoryItems.length }}）</span>
+      <el-tag
+        v-for="(m, i) in memoryItems"
+        :key="i"
+        size="small"
+        type="info"
+        effect="plain"
+      >{{ m.tool }}</el-tag>
     </div>
 
     <!-- 输入区 -->
@@ -118,11 +134,28 @@
           :workspace="workspaceName"
           :permissive="permissive"
           :level="permissions.effectiveLevel"
-          @workspace="workspaceName = ''"
+          @workspace="workspacePickerVisible = true"
           @toggle-permission="permissive = !permissive"
         />
       </div>
     </footer>
+
+    <!-- P4-13：工作空间选择器（此前是孤儿组件，点击按钮无反应） -->
+    <WorkspacePicker
+      v-if="workspacePickerVisible"
+      @switch="onPickWorkspace"
+    />
+
+    <!-- F-ENG-04：后端事件提示（工作空间切换 / 待审批等） -->
+    <div v-if="backendEventHint" class="event-hint">
+      <el-icon><InfoFilled /></el-icon><span>{{ backendEventHint }}</span>
+    </div>
+
+    <!-- P4-14：后端状态**降级态**提示（sidecar 崩溃 / 重启中） -->
+    <div v-if="backendDegraded" class="error-bar">
+      <el-icon><Warning /></el-icon>
+      <span>{{ backendDegraded }}</span>
+    </div>
 
     <!-- 权限审批卡（运行中出现待审批动作时弹出） -->
     <PermissionCard
@@ -153,7 +186,7 @@
 import { ref, computed, reactive, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Warning } from '@element-plus/icons-vue'
+import { InfoFilled, Plus, Warning } from '@element-plus/icons-vue'
 import ChatMessage from '@/components/ChatMessage.vue'
 import RoundGroup from '@/components/RoundGroup.vue'
 import ArtifactStrip from '@/components/ArtifactStrip.vue'
@@ -161,6 +194,7 @@ import PlanCard from '@/components/PlanCard.vue'
 import ComposerInput from '@/components/composer/ComposerInput.vue'
 import ContextChips from '@/components/composer/ContextChips.vue'
 import ContextBar from '@/components/composer/ContextBar.vue'
+import WorkspacePicker from '@/components/composer/WorkspacePicker.vue'
 import CommandPalette from '@/components/composer/CommandPalette.vue'
 import AtPicker from '@/components/composer/AtPicker.vue'
 import PermissionCard from '@/components/PermissionCard.vue'
@@ -173,7 +207,7 @@ import { useConfigStore } from '@/stores/config'
 import { usePermissionsStore } from '@/stores/permissions'
 import { useRoundsStore } from '@/stores/rounds'
 import { runCancel, runSteer } from '@/api/desktop'
-import { runsByStatus } from '@/api'
+import { runsByStatus, workspacesList } from '@/api'
 import { useWorkspaceStore, MODE_LABEL, toBackend, type WorkspaceMode } from '@/stores/workspace'
 import { useSessionStore } from '@/stores/session'
 import { streamAgent, runSSE } from '@/api/sse'
@@ -219,11 +253,15 @@ interface Msg {
   thinking: string
   files: Array<{ name: string; size: number; is_image: boolean }>
   done: boolean
+  /** P4-02：运行终态（后端 done.status 此前已发，前端未消费） */
+  doneStatus?: string
   error: string
   running: boolean
   stepSeq: number
   /** S8：耗时三态（开始/完成时刻，毫秒） */
   startedAt: number
+  /** P4-12：首个 token 到达时刻 */
+  firstTokenAt?: number
   finishedAt?: number
   /** 批次 02：运行 id（折叠态的键） */
   runId: string
@@ -276,9 +314,101 @@ const prompt = ref('')
 const running = ref(false)
 const approving = ref(false)
 const errorBanner = ref('')
+// P4-01：并发已满提示（与通用错误区分）
+const busyBanner = ref('')
+// P4-01：记忆条目（反思模式注入）
+const memoryItems = ref<{ tool: string; input: Record<string, unknown>; result: string }[]>([])
 const cmdVisible = ref(false)
 const atVisible = ref(false)
 const workspaceName = ref('')
+// P4-14：后端状态（桌面壳广播 `agent:backend-state`）→ 渲染侧**降级态**
+const backendState = ref<{
+  state: string
+  lastError?: string | null
+  restarts?: number
+} | null>(null)
+
+/** 后端不可用时的可读提示（null = 正常）。 */
+const backendDegraded = computed(() => {
+  const s = backendState.value
+  if (!s) return ''
+  if (s.state === 'crashed') {
+    return `后端进程已崩溃${s.lastError ? `：${s.lastError}` : ''}（正在自动重启）`
+  }
+  if (s.state === 'degraded') {
+    return `后端处于降级状态${s.lastError ? `：${s.lastError}` : ''}`
+  }
+  if (s.state === 'starting') return '后端正在启动…'
+  if (s.state === 'stopped' || s.state === 'stopping') return '后端已停止'
+  return ''
+})
+
+/** F-ENG-04：桌面后端事件（`workspace_changed` / `permission_requested` 等）。 */
+const backendEvents = ref<{ type: string; at: number }[]>([])
+
+/** 最近一条事件的**可读**描述（用于顶栏提示）。 */
+const backendEventHint = computed(() => {
+  const top = backendEvents.value[0]
+  if (!top) return ''
+  switch (top.type) {
+    case 'workspace_changed':
+      return '工作空间已切换'
+    case 'permission_requested':
+      return '有一项操作等待审批'
+    case 'permission_resolved':
+      return '审批已完成'
+    case 'scheduler_rescued':
+      return '调度已恢复'
+    default:
+      return `后端事件：${top.type}`
+  }
+})
+
+/**
+ * F-ENG-04：订阅壳转发的后端事件。
+ *
+ * 此前 `onBackendEvent` **只有类型声明、没有消费者** → 事件到了渲染进程
+ * 却无人处理（「桌面事件桥贯通」的验收不成立）。
+ *
+ * 同时把最近事件挂到 `window.__agentBackendEvents`（排障 + e2e 断言用）。
+ */
+function subscribeBackendEvents(): void {
+  const bridge = window.agentDesktop
+  if (!bridge?.onBackendEvent) return
+  bridge.onBackendEvent((raw: unknown) => {
+    const evt = (raw || {}) as { type?: string }
+    const item = { type: evt.type || 'unknown', at: Date.now() }
+    backendEvents.value = [item, ...backendEvents.value].slice(0, 50)
+    const w = window as unknown as { __agentBackendEvents?: unknown[] }
+    w.__agentBackendEvents = w.__agentBackendEvents || []
+    w.__agentBackendEvents.push(item)
+  })
+}
+
+/** P4-14：订阅壳广播的后端状态（Web 形态无桥 → 不订阅）。 */
+function subscribeBackendState(): void {
+  const bridge = window.agentDesktop
+  if (!bridge?.onBackendState) return
+  bridge.onBackendState((status) => {
+    backendState.value = status as unknown as typeof backendState.value
+  })
+}
+// P4-13：工作空间选择器此前是**孤儿组件**（全仓无引用）→ 按钮点了没反应
+const workspacePickerVisible = ref(false)
+
+/** P4-13：选中工作空间 → 写当前空间名并绑定到当前任务 */
+async function onPickWorkspace(id: string): Promise<void> {
+  workspacePickerVisible.value = false
+  try {
+    const data = await workspacesList()
+    const hit = data.items.find((w) => w.id === id)
+    workspaceName.value = hit?.name || id
+  } catch {
+    workspaceName.value = id
+  }
+  const sessionId = ws.currentTaskId
+  if (sessionId) ws.assignSpace(sessionId, id)
+}
 const permissive = ref(false)
 const fileOptions = ref<Array<{ name: string; size?: number }>>([])
 /** 附件（批次 02）：上限 50 个，添加后不自动发送。 */
@@ -326,6 +456,11 @@ let ctl: AbortController | null = null
 let currentAssistant: Msg | null = null
 
 onMounted(async () => {
+  // P4-14：订阅后端状态广播（降级态）——此前**定义了却从未调用**，
+  // 导致降级态提示实际不生效。
+  subscribeBackendState()
+  // F-ENG-04：订阅后端事件（渲染进程侧消费者）
+  subscribeBackendEvents()
   startApprovalPolling()
   void permissions.refresh()
   void refreshRunning()
@@ -452,6 +587,8 @@ function finalizeRounds(a: Msg): void {
 
 async function send() {
   const text = prompt.value.trim()
+  // P4-01：新一轮开始时清掉上一轮的并发提示
+  busyBanner.value = ''
   if (!text || running.value) return
   errorBanner.value = ''
 
@@ -649,6 +786,8 @@ function appendEvent(a: Msg, ev: AgentEvent) {
       })
       break
     case 'model_text':
+      // P4-12：记录**首 token** 到达时刻（发送 → 首 token → 完成）
+      if (a.firstTokenAt === undefined) a.firstTokenAt = Date.now()
       a.texts.push(ev.content)
       {
         const last = a.rounds[a.rounds.length - 1]
@@ -696,11 +835,29 @@ function appendEvent(a: Msg, ev: AgentEvent) {
       errorBanner.value = ev.content
       finalizeRounds(a)
       break
-    case 'done':
-      a.done = true
+    case 'busy':
+      // P4-01：并发已满是**明确状态**，不是通用错误——用专门提示条呈现
       a.running = false
       a.finishedAt = Date.now()
+      busyBanner.value = ev.content || `并发已达上限（${ev.limit ?? '?'}），请稍后重试`
       finalizeRounds(a)
+      break
+    case 'memory_item':
+      // P4-01：记忆调用可见（反思模式注入的记忆条目）
+      memoryItems.value.push({
+        tool: ev.tool || '',
+        input: ev.input || {},
+        result: ev.result || '',
+      })
+      break
+    case 'done':
+      // P4-02：消费 done.status——`awaiting_approval` **不是终态**
+      //（计划待人工确认，轮次不应被折叠为完成）
+      a.doneStatus = ev.status || 'completed'
+      a.done = a.doneStatus !== 'awaiting_approval'
+      a.running = false
+      a.finishedAt = Date.now()
+      if (a.done) finalizeRounds(a)
       // 速记形态：运行结束后关小窗并把任务交给主窗口（批次 02）
       if (composeMode.value && a.runId) void window.agentDesktop?.openRun?.(a.runId)
       break
@@ -856,6 +1013,15 @@ function scrollToBottom() {
 .hero { margin: 0 0 6px; font-size: 26px; font-weight: 600; color: var(--text); }
 .hero-sub { margin: 0 0 22px; color: var(--text-dim); font-size: 13.5px; }
 .plan-slot { padding: 0 20px; flex: 0 0 auto; }
+.event-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--el-color-primary, #409eff);
+  border-bottom: 1px solid var(--border-color, #e6e6e6);
+}
 .error-bar {
   display: flex; align-items: center; gap: 8px; margin: 0 20px 8px; padding: 7px 10px;
   background: var(--bg-code); border: 1px solid var(--red); border-radius: var(--radius-sm);

@@ -41,11 +41,17 @@ uv venv .venv --python 3.11
 # Linux/macOS：uv pip install --python .venv/bin/python -r requirements.txt
 cp .env.example .env   # 填入 DASHSCOPE_API_KEY（必需）/ LLM_API_KEY（DeepSeek，必需）
                        # 可选：BOCHA_API_KEY 或 SERPER_API_KEY（深度研究链路的检索引擎）
+                       # 可选：AGENT_API_KEY（Web 形态最小鉴权；留空 = 不启用）
 # Windows：.venv/Scripts/python.exe -m scripts.ingest_data   # RAG 入库（真实 PDF → Milvus）
-# Windows：.venv/Scripts/python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+# Windows：.venv/Scripts/python.exe -m app.main
 ```
 
-> 本机 `8000` 若被占用（如与其它本地服务共存），可改用 `--port 8001` 并让前端 proxy 指向对应端口。
+> **绑定地址与端口只由 `.env` 的 `HOST` / `PORT` 决定**（P1-10）。
+> `python -m app.main` 是**统一启动入口**——此前各文档用
+> `uvicorn app.main:app --host 0.0.0.0 --port 8000` 启动，绕过了配置，
+> 导致「默认只监听回环」形同虚设，且端口与前端 dev proxy 目标不一致。
+> - `HOST` 默认 `127.0.0.1`（只监听回环，单机自用的安全默认）；要对外提供服务请**显式**改为 `0.0.0.0`。
+> - `PORT` 必须与 `frontend/web/vue-element-plus/vite.config.ts` 的 `server.proxy['/api'].target` 一致（当前 `18040`）。
 
 ### 前端（开发模式，端口 5185）
 
@@ -57,12 +63,14 @@ npm run dev            # 打开 http://localhost:5185（/api 代理到 vite.conf
 
 > 前端 dev 代理目标由 `frontend/web/vue-element-plus/vite.config.ts` 的 `server.proxy['/api'].target` 决定（当前 `http://127.0.0.1:18040`）。开发时请让后端跑在该端口，或按需修改 target 指向后端实际端口。
 
-### 前端（生产模式，单端口 8000）
+### 前端（生产模式，单端口 = 后端端口）
 
 ```bash
 node frontend/scripts/build-frontend.mjs   # 产出 frontend/dist
-# 后端检测到 frontend/dist 后自动托管：http://127.0.0.1:8000/
+# 后端检测到 frontend/dist 后自动托管：http://127.0.0.1:<PORT>/
 ```
+
+> 端口同 `.env` 的 `PORT`（当前 `18040`）。
 
 ## 5 条能力链
 

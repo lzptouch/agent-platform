@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import os
 
 import pytest
@@ -19,7 +20,15 @@ from app.core.config import settings
 from app.desktop import bootstrap
 from app.main import app
 from app.services.desktop_service import DesktopService
-from app.services.permissions import PermissionService
+from app.services.security.permissions import PermissionService
+
+
+async def _take_first(agen):
+    """取异步生成器的第一帧并立刻关闭它（不能把无限流交给 TestClient）。"""
+    try:
+        return await agen.__anext__()
+    finally:
+        await agen.aclose()
 
 
 @pytest.fixture()
@@ -60,7 +69,10 @@ class TestPermissionService:
 
     def test_outside_workspace_needs_ask(self):
         svc = PermissionService()
-        check = svc.classify("read_file", path="C:/Windows/System32/drivers/etc/hosts")
+        # 用**平台中立**的绝对路径：Windows 风格的 "C:/Windows/..." 在 POSIX 上
+        # 会被 normalize_path 当相对路径解析到 cwd 下，语义完全变了。
+        outside = "C:/Windows/System32/drivers/etc/hosts" if os.name == "nt" else "/etc/hosts"
+        check = svc.classify("read_file", path=outside)
         assert check.decision == "ask"
 
     def test_action_beats_path(self):
@@ -70,10 +82,17 @@ class TestPermissionService:
         check = svc.classify("execute_bash", action="batch_delete", path=inside)
         assert check.decision == "deny"
 
-    def test_set_and_match_path_prefix_rule(self):
+    def test_set_and_match_path_prefix_rule(self, tmp_path):
+        """路径前缀规则命中即 deny（规则的目标是**目录前缀**，不是精确路径）。
+
+        平台中立：用 tmp_path 构造一个"工作区外的目录"，
+        不用硬编码 Windows 路径——那在 POSIX 上会被当成相对路径，测不到本意。
+        """
         svc = PermissionService()
-        svc.set_rule("path", "C:/Windows", "deny")
-        check = svc.classify("read_file", path="C:/Windows/System32/x.dll")
+        restricted = tmp_path / "restricted"
+        restricted.mkdir()
+        svc.set_rule("path", str(restricted), "deny")
+        check = svc.classify("read_file", path=str(restricted / "x.dll"))
         assert check.decision == "deny"
 
     def test_effective_level_aggregation(self):
@@ -184,11 +203,29 @@ class TestDesktopAPI:
         assert "rescued" in body and "skipped" in body
 
     def test_events_hello(self, client):
-        with client.stream("GET", "/api/v1/desktop/events") as r:
+        """SSE 首帧必须是 hello。
+
+        用 ``max_events=1`` 的**有界模式**：Starlette 的 TestClient 会先把
+        响应体收完再返回，对无限流端点来说无界模式在测试里必然挂死。
+        """
+        with client.stream("GET", "/api/v1/desktop/events?max_events=1") as r:
             assert r.status_code == 200
             assert "text/event-stream" in r.headers.get("content-type", "")
             first = next(iter(r.iter_text()), "")
             assert '"type": "hello"' in first
+
+    def test_events_unbounded_starts_with_hello(self):
+        """默认（无界）模式也必须先发 hello——桌面壳靠它确认协议版本。
+
+        这里直接取生成器的首帧就收手：不能把无限流交给 TestClient。
+        """
+        from app.api.v1.desktop import desktop_events
+
+        resp = desktop_events(after_id=0, max_events=None)
+        assert resp.media_type == "text/event-stream"
+        first = asyncio.run(_take_first(resp.body_iterator))
+        assert '"type": "hello"' in first
+        assert '"protocol": 1' in first
 
     def test_run_cancel_and_steer_not_found(self, client):
         assert client.post("/api/v1/runs/nope/cancel").status_code == 404

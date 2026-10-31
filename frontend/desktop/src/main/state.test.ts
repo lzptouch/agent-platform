@@ -6,6 +6,8 @@ describe("BackendStateMachine", () => {
   beforeEach(() => {
     // 复位到初始态，避免用例之间互相影响
     backendState.set("idle");
+    // 复位熔断计数（**D7**：markReady 不再清零它，必须显式复位）
+    backendState.resetConsecutiveFailures();
   });
 
   it("初始状态为 idle", () => {
@@ -61,5 +63,19 @@ describe("BackendStateMachine", () => {
     const status = backendState.status();
     expect(status.lastError).toBeNull();
     expect(status.restarts).toBe(0);
+  });
+
+  it("markReady 不会复位连续失败计数（熔断依据）", () => {
+    backendState.markCrashed("boom");
+    backendState.markReady(1, 2);
+    expect(backendState.status().consecutiveFailures).toBe(1);
+  });
+
+  it("连续失败计数逐次累加，只在显式复位时清零", () => {
+    backendState.markCrashed("a");
+    backendState.markCrashed("b");
+    expect(backendState.status().consecutiveFailures).toBe(2);
+    backendState.resetConsecutiveFailures();
+    expect(backendState.status().consecutiveFailures).toBe(0);
   });
 });

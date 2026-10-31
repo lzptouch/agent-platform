@@ -32,13 +32,19 @@ def register_artifact(
     path: str | Path,
     *,
     title: str | None = None,
+    kind: str | None = None,
+    url: str | None = None,
 ) -> dict:
-    """登记一个产物（显式产出）。返回产物记录。"""
+    """登记一个产物（显式产出）。返回产物记录。
+
+    **F-UX-02**：``kind`` 可显式指定（如 ``browser``——浏览器页面的截图），
+    ``url`` 记录该页面的**来源地址** → 前端「浏览器」视图有真实数据源。
+    """
     p = Path(path)
     if not p.is_absolute():
         p = workspace_root / p
     ext = p.suffix.lower()
-    kind = _KIND_BY_EXT.get(ext, "other")
+    kind = kind or _KIND_BY_EXT.get(ext, "other")
     size = p.stat().st_size if p.exists() else None
     with db_session() as db:
         row = ArtifactRow(
@@ -50,12 +56,14 @@ def register_artifact(
             kind=kind,
             size=size,
             previewable=1 if kind in _PREVIEWABLE else 0,
+            url=url,
         )
         db.add(row)
         db.flush()
         return {
             "id": row.id, "run_id": run_id, "path": row.path, "title": row.title,
             "kind": kind, "size": size, "mime": row.mime, "previewable": bool(row.previewable),
+            "url": row.url,
         }
 
 
@@ -69,6 +77,8 @@ def list_artifacts(run_id: str) -> list[dict]:
             {
                 "id": r.id, "path": r.path, "title": r.title, "mime": r.mime,
                 "kind": r.kind, "size": r.size, "previewable": bool(r.previewable),
+                # F-UX-02：浏览器类产物的来源页面地址
+                "url": r.url,
                 "created_at": r.created_at,
             }
             for r in rows

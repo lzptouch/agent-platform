@@ -199,26 +199,83 @@ class TestSteer:
 # WP-4.4 交互路径纳入并发预算
 # --------------------------------------------------------------------------- #
 class TestConcurrencyBudget:
-    def test_超限返回busy事件(self, client):
-        from app.core.config import settings
-        from app.services.run_executor import RunExecutor
-
+    def test_调度超限立即返回busy(self, client):
+        """P3-01 ②：调度预算（2 个）满 → 第 3 个**立即** busy（不排队）。"""
         from app.core.config import settings
 
         executor = app.state.run_executor
-        # 占满信号量（全部槽位）→ 交互路径应立刻给出 busy 事件
         held = []
         for _ in range(settings.schedule_max_concurrent):
-            if executor._semaphore.acquire(blocking=False):
+            if executor._schedule_semaphore.acquire(blocking=False):
                 held.append(True)
         try:
-            events = list(executor.execute_stream("并发测试", mode="chat", acquire_slot=True))
+            events = list(executor.execute_stream(
+                "调度并发测试", mode="work", acquire_slot=True, trigger="schedule",
+            ))
             assert events[0]["type"] == "busy"
             assert "并发" in events[0]["content"]
             assert events[-1]["type"] == "done"
         finally:
             for _ in held:
-                executor._semaphore.release()
+                executor._schedule_semaphore.release()
+
+    def test_交互超限排队而非busy(self, client):
+        """P3-01 ①：交互预算满 → **排队等待**（释放槽位后继续执行）。"""
+        import threading
+        import time
+
+        from app.core.config import settings
+
+        executor = app.state.run_executor
+        held = []
+        for _ in range(settings.interactive_max_concurrent):
+            if executor._interactive_semaphore.acquire(blocking=False):
+                held.append(True)
+        assert len(held) == settings.interactive_max_concurrent
+
+        result: dict = {}
+
+        def _run() -> None:
+            result["events"] = list(executor.execute_stream(
+                "交互排队测试", mode="chat", acquire_slot=True,
+            ))
+
+        worker = threading.Thread(target=_run, daemon=True)
+        worker.start()
+        try:
+            # 队列中的请求**不应**立刻返回 busy
+            time.sleep(0.6)
+            assert worker.is_alive(), "交互请求应排队等待，而不是立刻 busy"
+            assert "events" not in result
+
+            # 释放一个槽位 → 排队中的请求应继续执行
+            executor._interactive_semaphore.release()
+            held.pop()
+            worker.join(timeout=20)
+            assert not worker.is_alive(), "释放槽位后请求应继续执行"
+            events = result.get("events") or []
+            assert events and events[0]["type"] != "busy", events[:1]
+        finally:
+            for _ in held:
+                executor._interactive_semaphore.release()
+
+    def test_两套预算互不占用(self, client):
+        """P3-01 ③：占满**调度**预算不影响交互请求。"""
+        from app.core.config import settings
+
+        executor = app.state.run_executor
+        held = []
+        for _ in range(settings.schedule_max_concurrent):
+            if executor._schedule_semaphore.acquire(blocking=False):
+                held.append(True)
+        try:
+            events = list(executor.execute_stream(
+                "预算隔离测试", mode="chat", acquire_slot=True,
+            ))
+            assert events[0]["type"] != "busy", "交互预算不应被调度预算占用"
+        finally:
+            for _ in held:
+                executor._schedule_semaphore.release()
 
     def test_交互路径默认占用槽位(self):
         """execute_stream 默认占用预算；execute_sync 自行持有（不重复占）。"""

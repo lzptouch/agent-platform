@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 import logging
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -125,9 +125,46 @@ class TeamOrchestrator:
     # 三种编排
     # ------------------------------------------------------------------ #
     def _run_parallel(self, tasks: list[SubTask]) -> list[SubResult]:
-        with ThreadPoolExecutor(max_workers=min(self.max_workers, max(1, len(tasks)))) as pool:
-            futures = [pool.submit(self._execute, t, "") for t in tasks]
-            return [f.result() for f in futures]
+        """并行执行，**依赖感知**：有依赖的子任务等依赖完成后再启动。
+
+        ``SubTask.deps`` 是**任务列表下标**。此前本方法无视 deps——
+        全部子任务被一次性并发提交，「依赖未完成的项不启动」（F-EXT-09 验收）
+        **并不成立**。
+
+        依赖成环或指向不存在的下标时，剩余任务标记为失败（不静默丢弃，也不死循环）。
+        """
+        limit = min(self.max_workers, max(1, len(tasks)))
+        pending = set(range(len(tasks)))
+        done: set[int] = set()
+        results: list[SubResult] = []
+        running: dict[int, "Future[str]"] = {}
+
+        with ThreadPoolExecutor(max_workers=limit) as pool:
+            while pending or running:
+                # 启动所有「依赖已满足」的子任务
+                for pos in sorted(pending):
+                    task = tasks[pos]
+                    deps = [d for d in task.deps if 0 <= d < len(tasks)]
+                    if all(d in done for d in deps):
+                        running[pos] = pool.submit(self._execute, task, "")
+                        pending.discard(pos)
+                if not running:
+                    # 依赖无法满足（成环 / 指向不存在的下标）→ 标记失败，避免死循环
+                    for pos in sorted(pending):
+                        task = tasks[pos]
+                        results.append(SubResult(
+                            title=task.title, role=task.role, output="",
+                            error="依赖无法满足（成环或依赖不存在）",
+                        ))
+                        pending.discard(pos)
+                    break
+                finished, _ = wait(list(running.values()), return_when=FIRST_COMPLETED)
+                for fut in finished:
+                    pos = next(p for p, f in running.items() if f is fut)
+                    del running[pos]
+                    results.append(fut.result())
+                    done.add(pos)
+        return results
 
     def _run_sequential(self, tasks: list[SubTask]) -> list[SubResult]:
         results: list[SubResult] = []

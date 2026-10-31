@@ -1,3 +1,0 @@
-{"ts": "2026-10-28T07:10:21.331150+00:00", "run_id": "run-a", "tool": "write_file", "decision": "allow", "reason": "ok", "target": "x", "matched_rule_id": null, "latency_ms": 0, "request": {}}
-{"ts": "2026-10-28T07:10:21.331150+00:00", "run_id": "run-a", "tool": "execute_bash", "decision": "deny", "reason": "no", "target": "rm", "matched_rule_id": null, "latency_ms": 0, "request": {}}
-{"ts": "2026-10-28T07:10:21.332149+00:00", "run_id": "run-b", "tool": "read_file", "decision": "allow", "reason": "ok", "target": "y", "matched_rule_id": null, "latency_ms": 0, "request": {}}

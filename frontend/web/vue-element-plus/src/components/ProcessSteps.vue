@@ -22,16 +22,15 @@
           <div class="block-label">结果</div>
           <pre>{{ step.result }}</pre>
         </div>
-        <div v-if="step.references" class="block">
-          <div class="block-label">参考</div>
-          <pre>{{ step.references }}</pre>
-        </div>
-        <div v-if="step.reference_cards?.length" class="block">
-          <div class="block-label">引用卡片</div>
-          <el-card v-for="(c, j) in step.reference_cards" :key="j" class="ref-card" shadow="never">
-            <a v-if="c.url" :href="c.url" target="_blank">{{ c.title || c.url }}</a>
-            <span v-else>{{ c.title || '引用' }}</span>
-            <div v-if="c.quote" class="quote">{{ c.quote }}</div>
+        <!-- P4-05：两种来源的引用统一渲染（外观与点击行为一致） -->
+        <div v-if="citationsOf(step).length" class="block">
+          <div class="block-label">引用</div>
+          <el-card v-for="c in citationsOf(step)" :key="c.index" class="ref-card" shadow="never">
+            <a v-if="c.url" :href="c.url" target="_blank" rel="noopener noreferrer">
+              [{{ c.index }}] {{ c.title || c.url }}
+            </a>
+            <span v-else>[{{ c.index }}] {{ c.title || '引用' }}</span>
+            <div v-if="c.snippet" class="quote">{{ c.snippet }}</div>
           </el-card>
         </div>
       </div>
@@ -41,6 +40,12 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
+import {
+  adaptRagReferences,
+  adaptReferenceCards,
+  mergeCitations,
+  type Citation,
+} from '@/api/citations'
 
 defineProps<{
   steps: Array<{
@@ -51,8 +56,10 @@ defineProps<{
     tool_source?: string
     mcp_server?: string | null
     result?: string
-    references?: string
-    reference_cards?: Array<{ title?: string; url?: string; quote?: string }>
+    /** RAG 引用（原始结构，经适配器转成 Citation[]） */
+    references?: unknown
+    /** Web Research 引用卡片（原始结构，经适配器转成 Citation[]） */
+    reference_cards?: unknown
     title?: string
     text?: string
   }>
@@ -65,6 +72,17 @@ function toggle(i: number) {
   else open.value.add(i)
   // 触发响应
   open.value = new Set(open.value)
+}
+
+/** P4-05：把两条链路的原始引用统一成 Citation[]（渲染层只认这一种）。 */
+function citationsOf(step: {
+  references?: unknown
+  reference_cards?: unknown
+}): Citation[] {
+  return mergeCitations(
+    adaptRagReferences(step.references),
+    adaptReferenceCards(step.reference_cards),
+  )
 }
 
 function formatJson(s: string): string {

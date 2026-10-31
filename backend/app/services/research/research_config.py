@@ -26,8 +26,6 @@ def llm_config() -> dict:
         "base_url": settings.dashscope_base_url
         or "https://dashscope.aliyuncs.com/compatible-mode/v1",
         "model": "qwen-plus",        # 默认模型
-        "model_smart": "qwen-max",   # 复杂推理
-        "model_fast": "qwen-turbo",  # 简单任务
         "max_tokens": 8192,
         "temperature": 0.7,
     }
@@ -51,25 +49,11 @@ AGENT_CONFIG = MappingProxyType(
     {
         # ========== Orchestrator (Lead Agent) 配置 ==========
         "max_workers": 6,              # 最大并行 Worker 数
-        "max_search_depth": 3,         # 最大搜索深度（迭代次数）
         "timeout_per_worker": 120,     # 单个 Worker 超时时间（秒）
 
-        # ========== 查询类型与子智能体数量配置 ==========
-        "worker_count_guidelines": {
-            "simple": {"min": 1, "max": 2},
-            "standard": {"min": 2, "max": 3},
-            "medium": {"min": 3, "max": 5},
-            "high": {"min": 5, "max": 10},
-        },
 
-        # ========== 研究任务配置 ==========
-        "min_sources_per_topic": 3,
         "max_sources_per_topic": 10,
 
-        # ========== 报告配置 ==========
-        "report_language": "zh-CN",
-        "include_sources": True,
-        "include_summary": True,
 
         # ========== 迭代优化配置 ==========
         "min_iterations": 2,
@@ -78,17 +62,8 @@ AGENT_CONFIG = MappingProxyType(
 
         # ========== 智能终止配置 ==========
         "enable_diminishing_returns_check": True,
-        "diminishing_returns_threshold": 3,
-        "early_termination_min_score": 75,
 
-        # ========== SubAgent (Worker) 配置 ==========
-        "worker_max_ooda_cycles": 3,
 
-        "research_budget": {
-            "simple": {"max_queries": 3, "max_cycles": 1},
-            "medium": {"max_queries": 5, "max_cycles": 2},
-            "complex": {"max_queries": 8, "max_cycles": 3},
-        },
 
         "source_quality": {
             "high_quality_domains": [

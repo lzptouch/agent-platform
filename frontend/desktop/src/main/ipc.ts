@@ -103,8 +103,15 @@ export function registerIpc(): void {
 
   ipcMain.handle("desktop:checkForUpdates", () => ok({ info: checkForUpdates() }));
   ipcMain.handle("desktop:restartIntoUpdate", () => {
-    restartIntoUpdate();
-    return ok({});
+    // **D13**：包 try/catch —— quitAndInstall 未初始化时会同步抛异常，
+    // 直接冒泡到 IPC → 渲染进程侧 unhandled rejection。
+    try {
+      const res = restartIntoUpdate();
+      if (!res.ok) return res;
+      return ok({});
+    } catch (err) {
+      return fail("E_UPDATER_FAILED", `重启更新失败: ${String(err)}`);
+    }
   });
 
   ipcMain.handle("desktop:readClipboard", () => ok({ text: clipboard.readText() }));
@@ -169,7 +176,23 @@ function downloadToFile(url: string, dest: string): Promise<void> {
     const handle = supervisor.handle();
     if (!handle) return reject(new Error("后端未就绪"));
     const target = new URL(url, `http://127.0.0.1:${handle.port}`);
+    // **W7-02 / AUD2-C02（令牌外泄）**：`new URL(url, base)` 在 `url` 是**绝对地址**时
+    // 会**忽略 base** → 请求会带着常驻的 `X-Agent-Desktop-Token` 发往**外部主机**。
+    // 该令牌可直接通过后端 `request_authorized()` → 等于把整个 `/api/v1/**` 的权限外送。
+    // 修复：origin 必须**精确**等于本地 sidecar 的 origin。
+    const allowedOrigin = `http://127.0.0.1:${handle.port}`;
+    if (target.origin !== allowedOrigin) {
+      return reject(new Error(`目标 origin 不被允许: ${target.origin}`));
+    }
     const file = fs.createWriteStream(dest);
+    // **W8-05 / AUD2-H22**：WriteStream 无 "error" 监听 → 磁盘满 / 目标无权限 /
+    // 用户选了已删除的目录时，Node 对无监听器的 "error" 事件**抛未捕获异常**
+    // → **Electron 主进程崩溃、所有窗口消失**。
+    file.on("error", (err) => {
+      file.close();
+      fs.unlink(dest, () => undefined);
+      reject(err);
+    });
     const req = http.get(target, { headers: { "X-Agent-Desktop-Token": handle.token } }, (res) => {
       if (res.statusCode !== 200) {
         file.close();

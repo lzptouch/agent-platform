@@ -72,7 +72,24 @@ def record_call(
 
 
 def aggregate_run(run_id: str) -> dict:
-    """把某次 run 的计量聚合到 ``runs`` 行（可加总核对）。"""
+    """聚合某次 run 的计量（**纯读**，不写 ``runs`` 行）。
+
+    **W2-03 / AUD2-H06（乐观锁版本冲突）修复**
+
+    此前本函数会在**自己的 session** 里写回 ``runs`` 行（``prompt_tokens`` 等），
+    而 ``RunService.finish()`` 在**外层 session** 里已经持有该行的**旧版本**
+    → 内层提交后 ``version_id`` 自增 → 外层 flush 时
+    ``UPDATE ... WHERE id=? AND version_id=<旧值>`` **匹配 0 行**
+    → ``StaleDataError: UPDATE statement on table 'runs' expected to update 1 row(s)``
+    → **整个 run 的收尾失败**（终态写不进去，run 卡在 running）。
+
+    该缺陷此前是**潜伏**的：``llm_calls.run_id`` 恒为 NULL（见 ``AUD-C02``）→
+    本函数在 ``if not calls`` 处提前 return → 从不碰 ``runs`` 行。
+    修复 run_id 归属后被暴露出来。
+
+    现在改为**纯读**：``runs`` 行由 ``RunService.finish()`` 作为**唯一写入方**落账
+    （它本来就会写这四个字段），语义更清晰，也消除了双写与版本冲突。
+    """
     with db_session() as db:
         calls = db.scalars(select(LlmCallRow).where(LlmCallRow.run_id == run_id)).all()
         if not calls:
@@ -80,12 +97,6 @@ def aggregate_run(run_id: str) -> dict:
         prompt_tokens = sum(c.prompt_tokens for c in calls)
         completion_tokens = sum(c.completion_tokens for c in calls)
         cost = round(sum(c.cost for c in calls), 8)
-        row = db.get(RunRow, run_id)
-        if row is not None:
-            row.prompt_tokens = prompt_tokens
-            row.completion_tokens = completion_tokens
-            row.llm_calls = len(calls)
-            row.estimated_cost = cost
         return {
             "llm_calls": len(calls),
             "prompt_tokens": prompt_tokens,

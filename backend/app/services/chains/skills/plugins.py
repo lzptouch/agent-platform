@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import json
+import re
 import logging
 import shutil
 import zipfile
@@ -103,6 +104,9 @@ def read_manifest(pkg_dir: Path) -> dict:
     return _validate_manifest(raw)
 
 
+
+#: 插件名 / 版本号白名单（**W0-05**：防止越界写文件）
+_SAFE_COMPONENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 class PluginManager:
     """插件安装与回滚。"""
 
@@ -153,11 +157,25 @@ class PluginManager:
         except PluginError as exc:
             return InstallResult(ok=False, message=str(exc))
 
-        name = str(pkg_dir / "plugin.json")
+        # **W0-05 / AUD-C06（plugin.json 的 name/version 未校验 → 越界写文件）**
+        # 此前**重新读原始 JSON**（绕过了 ``read_manifest`` 的校验），
+        # ``plugin_name`` 可为 ``../../../../tmp/evil``
+        # → ``copytree`` 写到插件目录**之外**。
+        # 现在：只用 ``read_manifest`` 的**已校验值**，并对 name/version 做白名单校验。
         import json as _json
-        meta = _json.loads(Path(name).read_text(encoding="utf-8"))
+        meta = _json.loads((pkg_dir / "plugin.json").read_text(encoding="utf-8"))
         plugin_name = str(meta.get("name"))
         version = str(meta.get("version"))
+        if not _SAFE_COMPONENT.match(plugin_name):
+            return InstallResult(
+                ok=False, name=plugin_name, version=version,
+                message=f"插件名非法（只允许字母/数字/短横线/下划线/点）: {plugin_name!r}",
+            )
+        if not _SAFE_COMPONENT.match(version):
+            return InstallResult(
+                ok=False, name=plugin_name, version=version,
+                message=f"插件版本非法: {version!r}",
+            )
 
         scan = scanner.scan_directory(pkg_dir)
         scan_dict = scan.as_dict()
@@ -167,7 +185,12 @@ class PluginManager:
                 message=f"扫描等级 {scan.level}，默认拒绝安装（需显式确认）",
             )
 
-        target = self.plugins_dir / plugin_name / version
+        target = (self.plugins_dir / plugin_name / version).resolve()
+        if not target.is_relative_to(self.plugins_dir.resolve()):
+            return InstallResult(
+                ok=False, name=plugin_name, version=version,
+                message="插件安装路径越界",
+            )
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
             # **保留旧版本目录**以支持回滚：装新版本时旧目录原地留存

@@ -1,7 +1,10 @@
 """生成 doc/roadmap/11-需求-阶段-测试追溯矩阵.md（一次性工具，可重跑）。"""
+from pathlib import Path
 import io, re, collections
 
-SRC = 'doc/design/01-功能需求规格.md'
+# **E9**：此前是 CWD 相对路径 → 换个目录跑即 FileNotFoundError。
+REPO_ROOT = Path(__file__).resolve().parents[1]
+SRC = str(REPO_ROOT / 'doc/design/01-功能需求规格.md')
 OUT = 'doc/roadmap/11-需求-阶段-测试追溯矩阵.md'
 
 T = {

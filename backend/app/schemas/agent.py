@@ -24,6 +24,10 @@ class RunRequest(BaseModel):
     session_id: str | None = Field(default=None, description="会话 ID；提供则加载历史并落盘消息")
     team_id: str | None = Field(default=None, description="Skill 团队 ID（与 skills 互斥）")
     plan_first: bool = Field(default=False, description="工作模式：先出计划，待确认后执行")
+    # P2-10：按角色运行（角色定义参与 Prompt / 工具上界 / 模型档）
+    role_id: int | None = Field(default=None, description="角色 id（roles 表）；不填则不启用角色")
+    # P4-06：调试模式才全量下发 system prompt（默认只发长度与摘要）
+    debug_prompt: bool = Field(default=False, description="是否全量下发 system prompt（调试用）")
     skills: list[str] | None = Field(
         default=None,
         description="本次启用的 Skill 名称列表。work 模式 None = 全部；[] = 不启用；chat 模式 None = 不启用",

@@ -20,7 +20,15 @@ def main() -> int:
 
     cfg = Config(str(BACKEND_ROOT / "alembic.ini"))
     cfg.set_main_option("script_location", str(BACKEND_ROOT / "app" / "db" / "migrations"))
-    print(f"[migrate] database: {settings.database_url_abs}")
+    # **E11**：此前打印**完整**数据库 URL —— 切到 PostgreSQL 后口令会明文进 docker logs。
+    _safe = settings.database_url_abs
+    try:
+        from sqlalchemy.engine import make_url
+
+        _safe = make_url(settings.database_url_abs).render_as_string(hide_password=True)
+    except Exception:  # noqa: BLE001 —— 脱敏失败也要继续（不能因日志而中断迁移）
+        pass
+    print(f"[migrate] database: {_safe}")
     command.upgrade(cfg, "head")
     print("[migrate] upgrade head ok")
     return 0

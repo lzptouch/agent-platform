@@ -19,7 +19,6 @@ from sqlalchemy import select
 
 from app.db.base import db_session
 from app.db.models import RoleRow, utc_now
-from app.services.exec.roles import BUILTIN_ROLES
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +31,50 @@ ZERO_TOOL_TIERS = ("light",)
 
 class RoleError(ValueError):
     """角色定义不合法。"""
+
+
+# --------------------------------------------------------------------------- #
+# 内置角色（P2-13 · 从 exec/roles.py 迁入）
+# --------------------------------------------------------------------------- #
+#: 轻量上下文压缩器
+COMPACT_PROMPT = """你是一个上下文压缩器。请把给定的对话历史压缩成简短的要点，
+保留：用户的明确要求、已确定的结论、涉及的文件路径、待办事项。
+不要编造，不要输出寒暄。"""
+
+#: 结构化摘要器（九段）
+CONTEXT_SUMMARY_PROMPT = """你是一个结构化摘要器。请把对话历史整理为**九段**结构：
+意图 / 关键概念 / 涉及文件 / 已发生的错误 / 待解决的问题 / 用户明确消息 /
+待办事项 / 当前工作状态 / 下一步。每段都要有内容（无内容写"（无）"）。"""
+
+#: 记忆预筛器
+MEMORY_SELECTOR_PROMPT = """你是一个记忆筛选器。给定候选记忆（文件名 + 一句话描述 + 标签），
+选出与当前任务**最相关**的至多 5 条，只输出文件名，每行一个。"""
+
+#: 三个内置角色的 Prompt（``contextSummary`` 已被九段摘要真正使用——P2-03）
+BUILTIN_ROLE_PROMPTS: dict[str, str] = {
+    "compact": COMPACT_PROMPT,
+    "contextSummary": CONTEXT_SUMMARY_PROMPT,
+    "memorySelector": MEMORY_SELECTOR_PROMPT,
+}
+
+#: 三个内置角色的元数据（写入 ``roles`` 表）
+BUILTIN_ROLE_META: dict[str, dict] = {
+    "compact": {
+        "description": "轻量上下文压缩（占用达 70% 时触发）",
+        "model_tier": "light",
+        "tools": (),
+    },
+    "contextSummary": {
+        "description": "强结构化摘要（占用达 85% 时触发，九段结构）",
+        "model_tier": "light",
+        "tools": (),
+    },
+    "memorySelector": {
+        "description": "记忆预筛（从候选中选至多 5 条）",
+        "model_tier": "light",
+        "tools": (),
+    },
+}
 
 
 @dataclass
@@ -218,16 +261,16 @@ class RoleService:
     def sync_builtin_roles(self) -> int:
         """把 S5 的三个内置角色写入 ``roles`` 表（已存在则更新）。"""
         count = 0
-        for name, spec in BUILTIN_ROLES.items():
+        for name, spec in BUILTIN_ROLE_META.items():
             with db_session() as db:
                 row = db.scalar(select(RoleRow).where(RoleRow.name == name))
                 if row is None:
                     row = RoleRow(name=name)
                     db.add(row)
-                row.title = spec.description
-                row.identity = spec.description
-                row.tools_json = json.dumps(list(spec.tools), ensure_ascii=False)
-                row.model_tier = spec.model_tier
+                row.title = spec["description"]
+                row.identity = spec["description"]
+                row.tools_json = json.dumps(list(spec["tools"]), ensure_ascii=False)
+                row.model_tier = spec["model_tier"]
                 row.builtin = 1
                 row.enabled = 1
                 row.updated_at = utc_now()
@@ -240,12 +283,18 @@ class RoleService:
         role = self.get_by_name(name)
         if role is not None:
             return role
-        spec = BUILTIN_ROLES.get(name)
-        if spec is None:
+        # **修复**：此前引用**未定义**的 ``BUILTIN_ROLES``（本模块只有
+        # ``BUILTIN_ROLE_META`` / ``BUILTIN_ROLE_PROMPTS``）→ 一旦被调用即 NameError。
+        meta = BUILTIN_ROLE_META.get(name)
+        if meta is None:
             raise RoleError(f"角色不存在: {name}")
         return Role(
-            id=None, name=name, title=spec.description, identity=spec.description,
-            tools=list(spec.tools), model_tier=spec.model_tier, builtin=True,
+            id=None, name=name,
+            title=str(meta.get("title") or name),
+            identity=str(meta.get("identity") or meta.get("description") or name),
+            tools=list(meta.get("tools") or ()),
+            model_tier=str(meta.get("model_tier") or "standard"),
+            builtin=True,
         )
 
 

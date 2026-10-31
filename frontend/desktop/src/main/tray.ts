@@ -3,7 +3,7 @@ import { Menu, Tray, app, nativeImage } from "electron";
 import path from "node:path";
 
 import { getPaths } from "./paths";
-import { getMainWindow } from "./window";
+import { createMainWindow, getMainWindow } from "./window";
 import { toggleQuickPanel } from "./quick";
 
 let tray: Tray | null = null;
@@ -11,12 +11,15 @@ let badgeText: string | null = null;
 
 export function createTray(): void {
   const { installDir } = getPaths();
-  const iconPath = path.join(
-    installDir,
-    app.isPackaged ? "build" : "../build",
-    "icon.png",
-  );
+  // **D6**：此前 `installDir/build/icon.png` 在**两种形态下都不存在** → 空图标。
+  // 打包态：Resources/icon.icns；开发态：<工程根>/resources/icon.png。
+  const iconPath = app.isPackaged
+    ? path.join(installDir, "icon.icns")
+    : path.join(installDir, "resources", "icon.png");
   const icon = nativeImage.createFromPath(iconPath);
+  if (icon.isEmpty()) {
+    console.warn(`[tray] 托盘图标缺失或不可读：${iconPath}`);
+  }
   tray = new Tray(icon.isEmpty() ? nativeImage.createEmpty() : icon);
   tray.setToolTip("Agent Desktop");
   refreshMenu();
@@ -48,5 +51,8 @@ function showMain(): void {
   if (win) {
     win.show();
     win.focus();
+    return;
   }
+  // **D5**：窗口不存在（被销毁 / 尚未创建）→ **重建**，而不是静默什么都不做
+  createMainWindow();
 }

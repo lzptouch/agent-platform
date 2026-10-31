@@ -7,7 +7,13 @@
 
 export type ToolSource = 'builtin' | 'mcp' | 'rag' | 'web'
 export type ReflectionMode = 'plan_action_reflection_answer'
-export type McpServerStatus = 'ready' | 'disabled' | 'error'
+/** P4-11：真实连接状态（`connected` / `disconnected` / `error` / `disabled`） */
+export type McpServerStatus =
+  | 'connected'
+  | 'disconnected'
+  | 'error'
+  | 'disabled'
+  | 'ready'
 
 // ===== Agent =====
 
@@ -114,6 +120,10 @@ export interface McpServerInfo {
   stage: string
   description: string
   status: McpServerStatus
+  /** P4-11：可读的失败/状态原因（列表页即可见） */
+  reason?: string
+  read_only?: boolean
+  last_ok_at?: string | null
 }
 
 export interface McpServerDetail extends McpServerInfo {
@@ -402,6 +412,8 @@ export interface ErrorEv extends BaseAgentEvent {
 
 export interface DoneEv extends BaseAgentEvent {
   type: 'done'
+  /** P4-02：运行终态（completed / awaiting_approval / interrupted / failed） */
+  status?: string
 }
 
 export interface ReflectionStartEv extends BaseAgentEvent {
@@ -503,6 +515,23 @@ export type AgentEvent =
   | PlanReplacedEv
   | ContextCompressedEv
   | ContextTrimmedEv
+  | BusyEv
+  | MemoryItemEv
+
+/** 并发预算已满（S4）——P4-01 补齐 */
+export interface BusyEv {
+  type: 'busy'
+  content?: string
+  limit?: number
+}
+
+/** 记忆工具的一次调用（S5）——P4-01 补齐 */
+export interface MemoryItemEv {
+  type: 'memory_item'
+  tool?: string
+  input?: Record<string, unknown>
+  result?: string
+}
 
 // ===== 会话 =====
 

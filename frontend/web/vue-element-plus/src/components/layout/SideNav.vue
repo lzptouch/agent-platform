@@ -45,6 +45,12 @@
           @click="selectTask(t.id)"
         >
           <span class="task-title">{{ t.title || '未命名任务' }}</span>
+          <!-- P4-10：运行中任务显示**状态徽标**（此前只有标题+消息数） -->
+          <span
+            v-if="isRunning(t.id)"
+            class="task-running"
+            :title="runningTitle(t.id)"
+          >● 运行中</span>
           <span class="task-meta">{{ t.message_count }}</span>
         </div>
         <div v-if="!ws.tasks.length" class="empty-hint">暂无任务</div>
@@ -102,6 +108,18 @@ const collapsed = computed(() => ws.sidebarCollapsed)
 const isWorkspace = computed(() => route.path === '/workspace')
 
 const tasksOpen = ref(true)
+
+/** P4-10：该任务是否有运行中的 run（`ws.runningRunIds` 由 `refreshRunning` 轮询填充）。 */
+function isRunning(sessionId: string): boolean {
+  return ws.runningRunIds.includes(sessionId)
+}
+
+/** P4-10：运行中提示（进度以消息数近似——run 详情未随列表返回）。 */
+function runningTitle(sessionId: string): string {
+  const task = ws.tasks.find((x) => x.id === sessionId)
+  const count = task?.message_count ?? 0
+  return `运行中（已产生 ${count} 条消息）`
+}
 const spacesOpen = ref(false)
 
 /**
@@ -188,6 +206,7 @@ function selectTask(id: string) {
 .task-item:hover { background: var(--bg-hover); }
 .task-item.active { background: var(--bg-hover); font-weight: 600; }
 .task-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-running { color: var(--el-color-success, #67c23a); font-size: 11px; margin-left: 6px; }
 .task-meta { color: var(--text-faint); font-size: 11px; }
 .empty-hint { padding: 6px 8px; font-size: 12px; color: var(--text-faint); }
 .nav-bottom {

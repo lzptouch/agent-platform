@@ -24,7 +24,8 @@ from zoneinfo import ZoneInfo
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select, update
+from sqlalchemy.exc import IntegrityError
 
 from app.core.config import settings
 from app.db.base import db_session
@@ -78,6 +79,9 @@ def task_to_out(row: ScheduledTaskRow) -> ScheduleOut:
     if row.schedule_kind == "cron":
         schedule_text = _cron_desc(row.cron_expr or "")
         suffix = f"（{row.timezone}）"
+    elif row.schedule_kind == "rrule":  # P2-16
+        schedule_text = f"RRULE {row.rrule_expr or ''}"
+        suffix = f"（{row.timezone}）"
     else:
         sec = row.interval_seconds or 0
         schedule_text = f"每 {sec // 60} 分钟" if sec % 60 == 0 else f"每 {sec} 秒"
@@ -99,6 +103,8 @@ def task_to_out(row: ScheduledTaskRow) -> ScheduleOut:
         schedule_kind=row.schedule_kind,  # type: ignore[arg-type]
         cron_expr=row.cron_expr,
         interval_seconds=row.interval_seconds,
+        rrule_expr=row.rrule_expr,
+        delivery=json.loads(row.delivery_json or "{}") or None,
         timezone=row.timezone,
         enabled=bool(row.enabled),
         allow_unattended_tools=bool(row.allow_unattended_tools),
@@ -117,6 +123,11 @@ def task_to_out(row: ScheduledTaskRow) -> ScheduleOut:
     )
 
 
+#: run 的**终态**集合（非终态不得被记为 success —— W9-05）
+_TERMINAL_RUN_STATUSES = frozenset({
+    "success", "failed", "skipped", "interrupted", "cancelled",
+})
+
 class SchedulerService:
     def __init__(self, run_executor: RunExecutor | None = None) -> None:
         self.run_executor = run_executor
@@ -131,32 +142,72 @@ class SchedulerService:
     # 租约
     # ------------------------------------------------------------------ #
     def _acquire_lease(self) -> bool:
+        """**原子**获取调度租约。
+
+        **W7-04 / AUD2-C04（多副本可同时成为 primary）修复**
+
+        旧实现是典型的 **check-then-act**::
+
+            row = db.get(SystemLockRow, LEASE_NAME)   # 读
+            if row is None:
+                db.add(...)                          # 写（读与写之间无保护）
+
+        两个副本同时启动时：都读到 ``None`` → 都 ``add`` → 其一提交时抛**未捕获的**
+        ``IntegrityError``（直接冒泡出 ``start()``，整个调度器启动失败），
+        或两者都判定自己拿到租约 → **双 primary 双调度**，同一任务被触发两次。
+
+        新实现用**单条条件 UPDATE** 实现原子获取：只有「不存在」「已过期」「本来就是我」
+        三种情况才接管；并发插入失败（``IntegrityError``）视为「别人拿到了」，
+        **不是错误**，返回 False 进入 standby。
+        """
         now = datetime.now(timezone.utc)
         expires = (now + timedelta(seconds=settings.schedule_lease_ttl)).isoformat()
+        now_iso = now.isoformat()
         with db_session() as db:
-            row = db.get(SystemLockRow, LEASE_NAME)
-            if row is None:
+            # ① 条件更新（原子）：owner 是我 / 已过期 → 接管
+            res = db.execute(
+                update(SystemLockRow)
+                .where(SystemLockRow.name == LEASE_NAME)
+                .where(
+                    or_(
+                        SystemLockRow.owner == self.owner,
+                        SystemLockRow.expires_at < now_iso,
+                    )
+                )
+                .values(owner=self.owner, expires_at=expires, renewed_at=now_iso)
+            )
+            if res.rowcount:
+                return True
+            # ② 行不存在 → 尝试插入（可能与并发插入竞争）
+            existing = db.get(SystemLockRow, LEASE_NAME)
+            if existing is not None:
+                # 已被别人持有且未过期 → standby
+                return False
+            try:
                 db.add(SystemLockRow(
                     name=LEASE_NAME, owner=self.owner,
-                    expires_at=expires, renewed_at=now.isoformat(),
+                    expires_at=expires, renewed_at=now_iso,
                 ))
+                db.flush()
                 return True
-            if row.owner == self.owner or (row.expires_at < now.isoformat()):
-                row.owner = self.owner
-                row.expires_at = expires
-                row.renewed_at = now.isoformat()
-                return True
-            return False
+            except IntegrityError:
+                # 并发插入失败 = 别人先拿到了 → standby（**不是错误**）
+                db.rollback()
+                return False
 
     def _renew_lease(self) -> bool:
         now = datetime.now(timezone.utc)
+        expires = (now + timedelta(seconds=settings.schedule_lease_ttl)).isoformat()
         with db_session() as db:
-            row = db.get(SystemLockRow, LEASE_NAME)
-            if row is None or row.owner != self.owner:
-                return False
-            row.expires_at = (now + timedelta(seconds=settings.schedule_lease_ttl)).isoformat()
-            row.renewed_at = now.isoformat()
-            return True
+            # **W7-04**：条件更新 —— 只有 owner 仍是我时才续租，
+            # 否则（已被别人接管）续租会「假成功」。
+            res = db.execute(
+                update(SystemLockRow)
+                .where(SystemLockRow.name == LEASE_NAME)
+                .where(SystemLockRow.owner == self.owner)
+                .values(expires_at=expires, renewed_at=now.isoformat())
+            )
+            return bool(res.rowcount)
 
     def _release_lease(self) -> None:
         with db_session() as db:
@@ -237,6 +288,18 @@ class SchedulerService:
         tz = ZoneInfo(row.timezone)
         if row.schedule_kind == "cron":
             return CronTrigger.from_crontab(row.cron_expr, timezone=tz)
+        if row.schedule_kind == "rrule":  # P2-16：RRULE → 触发器
+            from app.services.scheduler.rrule import RRuleTrigger, parse
+
+            try:
+                rule = parse(row.rrule_expr or "")
+            except Exception as exc:  # noqa: BLE001 - 非法表达式不建任务
+                raise ValueError(f"无效 RRULE 表达式: {exc}") from exc
+            # **AUD2-H08 / W9-02**：不再降级成 crontab（会丢掉 INTERVAL 且 DAILY 的
+            # ``*/N`` 落在日-of-月字段 → 语义错位）。改用直接按 RRULE 语义计算的触发器，
+            # 且与槽位展开（``expand_slots``）**同源** → 触发时刻与幂等槽位永远一致。
+            anchor = _parse_iso(row.created_at) or datetime.now(tz)
+            return RRuleTrigger(rule, anchor, tz)
         return IntervalTrigger(seconds=row.interval_seconds, timezone=tz)
 
     def _job_kwargs(self) -> dict:
@@ -330,6 +393,9 @@ class SchedulerService:
                 schedule_kind=data.schedule_kind,
                 cron_expr=data.cron_expr,
                 interval_seconds=data.interval_seconds,
+                rrule_expr=data.rrule_expr,
+                # P3-02：投递配置落库（此前有读无写）
+                delivery_json=json.dumps(data.delivery or {}, ensure_ascii=False),
                 timezone=data.timezone,
                 enabled=1 if data.enabled else 0,
                 allow_unattended_tools=1 if data.allow_unattended_tools else 0,
@@ -359,10 +425,30 @@ class SchedulerService:
             row = db.get(ScheduledTaskRow, task_id)
             if row is None:
                 return None
-            for key in ("name", "prompt", "timezone", "cron_expr", "interval_seconds"):
+            # **W9-09 / AUD2-M01**：**先校验再写库** —— 非法 cron / rrule / timezone
+            # 此前会落库（并在 sync_task 抛 500），导致任务表达式已损坏、job 未重建。
+            # 这里复用 schema 的校验器（ScheduleUpdate 已继承 ScheduleCreate 的三个）。
+            for key, validator in (
+                ("timezone", "timezone"),
+                ("cron_expr", "cron_expr"),
+                ("rrule_expr", "rrule_expr"),
+            ):
+                val = getattr(data, key, None)
+                if val is None:
+                    continue
+                check = getattr(data, f"_validate_{key}", None)
+                if check is not None:
+                    try:
+                        check(val)
+                    except Exception as exc:  # noqa: BLE001
+                        raise ValueError(f"无效 {key}: {exc}") from exc
+            for key in ("name", "prompt", "timezone", "cron_expr", "interval_seconds",
+                        "rrule_expr"):
                 val = getattr(data, key, None)
                 if val is not None:
                     setattr(row, key, val)
+            if data.delivery is not None:  # P3-02：投递配置可更新
+                row.delivery_json = json.dumps(data.delivery or {}, ensure_ascii=False)
             if data.mode is not None:
                 row.mode = data.mode
             if data.plan_first is not None:
@@ -386,11 +472,13 @@ class SchedulerService:
             if data.mcp_servers is not None:
                 enable["mcp_servers"] = data.mcp_servers
             row.enable_json = json.dumps(enable, ensure_ascii=False)
-            # cron/interval 二选一：明确给定一个时清掉另一个
+            # cron / interval / rrule **三选一**（P2-16）：明确给定一个时清掉其余
             if data.cron_expr is not None:
-                row.schedule_kind, row.interval_seconds = "cron", None
+                row.schedule_kind, row.interval_seconds, row.rrule_expr = "cron", None, None
             elif data.interval_seconds is not None:
-                row.schedule_kind, row.cron_expr = "interval", None
+                row.schedule_kind, row.cron_expr, row.rrule_expr = "interval", None, None
+            elif data.rrule_expr is not None:
+                row.schedule_kind, row.cron_expr, row.interval_seconds = "rrule", None, None
             row.updated_at = utc_now()
             # 安全校验（与创建一致）
             if row.mode == "work" and row.enabled and not row.allow_unattended_tools:
@@ -428,14 +516,138 @@ class SchedulerService:
     # 触发执行
     # ------------------------------------------------------------------ #
     def _compute_slot(self, row: ScheduledTaskRow) -> str:
-        """确定性槽位：重启/补跑/并发计算结果一致。"""
+        """确定性槽位：重启/补跑/并发计算结果一致。
+
+        **P3-04**：cron 槽位此前是「当前分钟截断」（``now.replace(second=0)``）
+        —— 与 cron 的**真实触发时刻**不一致（``0 9 * * 1-5`` 的任务在 09:00:00
+        触发时，槽位应恰为 09:00:00，而不是任意分钟的整点）。
+        现在改为用 ``CronTrigger`` 求出**最近一次真实触发时刻**。
+        """
         now = datetime.now(timezone.utc)
         if row.schedule_kind == "cron":
-            return now.replace(second=0, microsecond=0).isoformat()
+            return self._cron_last_fire(row, now)
+        if row.schedule_kind == "rrule":  # P2-16
+            return self._rrule_slot(row, now)
         created = _parse_iso(row.created_at) or now
         interval = row.interval_seconds or 60
         idx = int((now - created).total_seconds() // interval)
         return (created + timedelta(seconds=idx * interval)).isoformat()
+
+    @staticmethod
+    @staticmethod
+    def _last_cron_fire(
+        trigger: "CronTrigger", now: datetime, *, window_days: int = 400
+    ) -> datetime | None:
+        """求 ``<= now`` 的**最近一个** cron 触发点（**与任务年龄完全无关**）。
+
+        **W7-03 / AUD2-C03（定时任务静默永久停摆）修复**
+
+        旧实现从 ``created_at`` **正向迭代 200 次**取最后一个 → 算出的槽位约等于
+        「200 个周期之前」，**与 ``now`` 无关**。后果：
+
+        - 任务只要存活超过 200 个周期，槽位就被钉死在过去（``*/5 * * * *`` 约 16.7 小时、
+          ``0 * * * *`` 约 8.3 天、``0 0 * * *`` 约 200 天）；
+        - 该陈旧槽位撞上唯一约束 ``uq_runs_task_slot(task_id, scheduled_for)``
+          → ``create_run()`` 返回 ``None`` → 调度器判定「槽位已执行过，跳过」
+          → **此后每次触发都用同一个陈旧槽位 → 任务永久停摆，且日志只打 INFO**。
+
+        新实现用**二分**求解：令 ``f(X) = 第一个 >= X 的触发点``（cron 下单调不减）。
+        设触发点序列为 ``t1 < t2 < ...``，``t_k <= now < t_{k+1}``。
+        「满足 ``f(X) <= now`` 的最大 X」记为 ``X2``：由单调性，``X2 ∈ [t_k, t_{k+1})``，
+        于是 ``f(X2) = t_k`` —— 即所求。**结果只依赖 ``now``，与任务年龄无关。**
+        """
+        step = timedelta(microseconds=1)
+        lo = now - timedelta(days=window_days)
+        hi = now
+        # 前置检查：窗口内是否至少有一个触发点
+        if trigger.get_next_fire_time(None, lo) is None:
+            return None
+        # 二分：找最大的 X，使 f(X) <= now
+        while lo < hi:
+            mid = lo + (hi - lo + step) // 2
+            nxt = trigger.get_next_fire_time(None, mid)
+            if nxt is not None and nxt <= now:
+                lo = mid
+            else:
+                hi = mid - step
+        result = trigger.get_next_fire_time(None, lo)
+        return result if result is not None and result <= now else None
+
+    def _cron_last_fire(self, row: ScheduledTaskRow, now: datetime) -> str:
+        """cron 的**最近一次真实触发时刻**（UTC ISO）。
+
+        **P3-04**：与补跑路径（``_missed_slot`` 的 cron 分支）**同一套算法**
+        —— 保证「正常触发」与「补跑」算出同一个槽位，幂等闸门
+        （``uq_runs_task_slot``）才真正有效。
+
+        **W7-03**：改用二分反解（``_last_cron_fire``），槽位**不再依赖任务年龄**。
+        """
+        fallback = now.replace(second=0, microsecond=0).isoformat()
+        expr = (row.cron_expr or "").strip()
+        if not expr:
+            return fallback
+        try:
+            trigger = CronTrigger.from_crontab(
+                expr, timezone=ZoneInfo(row.timezone or settings.tz),
+            )
+        except Exception:  # noqa: BLE001 - 非法 cron 退化为分钟槽
+            return fallback
+
+        last = self._last_cron_fire(trigger, now)
+        if last is None:
+            return fallback
+        return last.astimezone(timezone.utc).isoformat()
+
+    @staticmethod
+    def _rrule_slot(row: ScheduledTaskRow, now: datetime) -> str:
+        """RRULE 槽位 = ``now`` 之前（含）最近的一个**合法触发点**。
+
+        **必须是 RRULE 展开出的槽位之一**——否则同一个触发点会算出不同 slot，
+        幂等闸门（``uq_runs_task_slot``）失效，会产生重复 run。
+
+        **W7-03**：展开锚点由 ``created_at`` 改为 ``now - horizon``，
+        **槽位不再依赖任务年龄**（旧实现对老任务会取到几百天前的旧槽位 → 同样停摆）。
+        """
+        from app.services.scheduler.rrule import RRULEError, expand_slots, parse
+
+        fallback = now.replace(second=0, microsecond=0).isoformat()
+        expr = (row.rrule_expr or "").strip()
+        if not expr:
+            return fallback
+        try:
+            rule = parse(expr)
+        except RRULEError:
+            return fallback
+
+        tz = ZoneInfo(row.timezone or settings.tz)
+        local_now = now.astimezone(tz)
+        # **以 now 为锚向前回溯一个 horizon**，而不是以 created_at 为锚
+        horizon_days = 370
+        local_anchor = (local_now - timedelta(days=horizon_days)).replace(
+            hour=0, minute=0, second=0, microsecond=0,
+        )
+        # limit 必须能覆盖 horizon 内的全部槽位，否则高频规则会取不到最近的槽位
+        per_day = {
+            "HOURLY": 24, "MINUTELY": 24 * 60, "SECONDLY": 24 * 60 * 60,
+        }.get(str(getattr(rule, "freq", "")).upper(), 1)
+        limit = min(20000, max(400, horizon_days * per_day))
+        try:
+            slots = expand_slots(rule, local_anchor, limit=limit, horizon_days=horizon_days)
+        except Exception:  # noqa: BLE001 - 展开失败退化为分钟槽
+            return fallback
+
+        chosen: datetime | None = None
+        for raw in slots:
+            dt = datetime.fromisoformat(raw)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=tz)
+            if dt <= local_now:
+                chosen = dt
+            else:
+                break
+        if chosen is None:
+            return fallback
+        return chosen.astimezone(timezone.utc).isoformat()
 
     def _build_exec_meta(self, row: ScheduledTaskRow) -> dict:
         enable = json.loads(row.enable_json or "{}")
@@ -500,9 +712,35 @@ class SchedulerService:
             self._mark_task(task_id, last_status="failed", error="执行器未初始化", increment=True)
             return
 
+        # **W9-03 / AUD2-H03**：异常兜底。
+        # 此前 `_fire` **只有 finally 没有 except** —— `create_run` 之后的任何异常
+        # （DB locked / session_service.create 失败 / execute_sync 前置阶段异常）都冒泡给
+        # APScheduler：预建的 run 永远停在 `queued`（要等 900s 巡检才捞），
+        # 而 `last_status` / `consecutive_failures` / `backoff_until` **完全没更新**
+        # → 任务**永不进入退避**，失败被完全掩盖。
+        try:
+            self._execute_task(task_id, task, row, slot, run, run_service)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("定时任务执行异常: task=%s", task_id)
+            err = f"{type(exc).__name__}: {exc}"
+            try:
+                run_service.finish(run.id, "failed", error=err)
+            except Exception:  # noqa: BLE001
+                logger.exception("标记 run 失败时出错: run=%s", run.id)
+            self._mark_task(task_id, last_status="failed", error=err, increment=True)
+
+    def _execute_task(
+        self, task_id: str, task, row, slot: str, run, run_service
+    ) -> None:
+        """执行一次定时任务并结算状态（由 ``_fire`` 的 try/except 包裹）。"""
         meta = self._build_exec_meta(row)
         # 无人值守上下文：本 run 是定时触发 → 权限 ask 降级为 deny（不挂起）
         unattended_context.set(True)
+        # P1-04：危险工具二次开关必须真正生效。
+        # 此前全仓唯一的写入点在 finally 里恒为 False → `allow_dangerous_tools`
+        # 无论入库成什么样都恒走「拒绝」，是一个「可写可查可输出但永不生效」的误导性配置。
+        # 这里按任务行的真实值置位，finally 复位为 False（交互路径保持恒拒绝）。
+        dangerous_tools_context.set(bool(row.allow_dangerous_tools))
         try:
             result = self.run_executor.execute_sync(
                 task.prompt,
@@ -538,9 +776,29 @@ class SchedulerService:
                 run_service.update_meta(run.id, meta)
                 self.run_executor.resume_after_approval(run.id)
                 self._mark_task(task_id, last_status="running")
+                # **W9-04**：恢复段的**真实终态**由 ``resume_after_approval`` 内的
+                # ``_run`` 写入 ``runs`` 表，**不会**回写 ``scheduled_tasks``
+                # → ``last_status`` 永久停在 "running"、``consecutive_failures`` 不增
+                # → 定时任务连续失败**永不触发退避**，``health()`` 也永远显示 running。
+                # 现在：起一个轻量后台线程轮询 run 终态，终态后回写任务状态。
+                self._settle_after_resume(task_id, run.id, run_service)
                 return
 
+        # **W9-05**：run **非终态**（awaiting_approval / interrupted）时，
+        # 此前会落到 ``error = result.get("error")``（通常为 None）
+        # → ``_mark_task(last_status="success")`` —— run 明明还没完成却被记为成功
+        # → 任务健康度 / run_count / 连续失败数全部失真。
         error = result.get("error")
+        if current is not None and current.status not in _TERMINAL_RUN_STATUSES:
+            status = current.status
+            self._mark_task(
+                task_id,
+                last_status=status if status in ("awaiting_approval", "interrupted") else "failed",
+                error=error or f"run 处于非终态: {status}",
+                increment=status == "failed",
+            )
+            return
+
         self._mark_task(
             task_id,
             last_status="failed" if error else "success",
@@ -549,6 +807,47 @@ class SchedulerService:
         )
         # S7 / WP-7.4：通知实装 —— run 终态后按 delivery 配置投递
         self._deliver(task, row, run, result, error)
+
+    def _settle_after_resume(
+        self, task_id: str, run_id: str, run_service, *, timeout_s: float = 900.0
+    ) -> None:
+        """审批恢复结束后回写任务状态（**W9-04**）。
+
+        恢复段在**后台线程**执行（``resume_after_approval`` → 线程池），
+        它的终态只写 ``runs`` 表 → 任务行必须在这里补一次结算，
+        否则 ``last_status`` 永远停在 "running"、失败永不计入退避。
+        """
+        import threading
+
+        def _wait() -> None:
+            deadline = time.monotonic() + timeout_s
+            while time.monotonic() < deadline:
+                try:
+                    run = run_service.get_run(run_id)
+                except Exception:  # noqa: BLE001
+                    return
+                if run is None:
+                    return
+                if run.status in _TERMINAL_RUN_STATUSES:
+                    error = None if run.status == "success" else (run.error or run.status)
+                    try:
+                        self._mark_task(
+                            task_id,
+                            last_status="success" if run.status == "success" else "failed",
+                            error=error,
+                            increment=run.status == "failed",
+                        )
+                    except Exception:  # noqa: BLE001
+                        logger.exception("回写任务终态失败: task=%s run=%s", task_id, run_id)
+                    return
+                time.sleep(1.0)
+            # 超时仍未终态：标记为 interrupted（不静默停在 running）
+            try:
+                self._mark_task(task_id, last_status="interrupted", error="审批恢复超时")
+            except Exception:  # noqa: BLE001
+                logger.exception("回写任务超时状态失败: task=%s", task_id)
+
+        threading.Thread(target=_wait, name="task-settle", daemon=True).start()
 
     def _deliver(self, task, row, run, result: dict, error: str | None) -> None:
         """按 delivery 配置投递通知（失败不改任务状态）。"""
@@ -569,10 +868,22 @@ class SchedulerService:
         except Exception:  # noqa: BLE001
             artifacts = []
 
+        # **W9-01**：耗时取 **runs 表的真实值**（此前取 ``result.get("duration_ms")``，
+        # 而 ``execute_sync()`` 的返回字典里根本没有这个键 → 恒为 0）。
+        duration_ms = 0
+        try:
+            run_row = run_service.get_run(run.id)
+            if run_row is not None and getattr(run_row, "duration_ms", None) is not None:
+                duration_ms = int(run_row.duration_ms)
+        except Exception:  # noqa: BLE001
+            duration_ms = 0
+        if not duration_ms:
+            duration_ms = int(result.get("duration_ms") or 0)
+
         payload = DeliveryPayload(
             task_name=task.name,
             status="failed" if error else "success",
-            duration_ms=int(result.get("duration_ms") or 0),
+            duration_ms=duration_ms,
             summary=str(result.get("answer") or result.get("error") or "")[:500],
             artifacts=artifacts,
             run_id=run.id,
@@ -737,18 +1048,41 @@ class SchedulerService:
         with db_session() as db:
             rows = db.scalars(select(ScheduledTaskRow).where(ScheduledTaskRow.enabled == 1)).all()
             candidates = [(row.id, row.schedule_kind, row.cron_expr, row.interval_seconds,
-                           row.timezone, row.created_at) for row in rows]
+                           row.timezone, row.created_at, row.rrule_expr) for row in rows]
 
-        for task_id, kind, cron_expr, interval_seconds, tz_name, created_at in candidates[:limit]:
-            slot = self._missed_slot(kind, cron_expr, interval_seconds, tz_name, created_at, effective_from, now)
+        # **F-SCH-09 / AUD2-M04**：此前是 ``candidates[:limit]``（默认 20）
+        # 且 SQL **无 ORDER BY** → 选取任意 20 个任务，其余**永不补跑**，
+        # 且每次补跑的集合可能不同（不确定 → 同样的任务反复被跳过）。
+        # 现在：**全量遍历**（limit 语义改为「单批上限」由分页实现，
+        # 此处按 created_at 排序保证确定性）。
+        candidates.sort(key=lambda c: (str(c[5] or ""), str(c[0])))
+        for task_id, kind, cron_expr, interval_seconds, tz_name, created_at, rrule_expr in candidates:
+            slot = self._missed_slot(kind, cron_expr, interval_seconds, tz_name, created_at,
+                                   effective_from, now, rrule_expr)
             if slot is None:
                 skipped += 1
                 continue
             item = {"task_id": task_id, "scheduled_for": slot, "status": "queued"}
             items.append(item)
             self._fire(task_id, slot_override=slot)
-            item["status"] = "rescued"
-            rescued.append(item)
+            # **F-SCH-09 / AUD2-M04**：``_fire`` 内部可能因**退避 / 配额 / 幂等**而跳过，
+            # 此前状态**无条件**写成 "rescued" → 明明没跑却报「已补跑」。
+            # 现在：按 ``_fire`` 的实际结果回填（run 是否真的创建）。
+            actually_run = True
+            try:
+                if self.run_service is not None:
+                    run = self.run_service.get_by_task_slot(task_id, slot)
+                    if run is not None:
+                        actually_run = run.status not in ("skipped",)
+                    else:
+                        actually_run = False
+            except Exception:  # noqa: BLE001
+                actually_run = True
+            item["status"] = "rescued" if actually_run else "skipped"
+            if actually_run:
+                rescued.append(item)
+            else:
+                skipped += 1
 
         return {
             "rescued": len(rescued),
@@ -757,8 +1091,8 @@ class SchedulerService:
             "items": items,
         }
 
-    @staticmethod
     def _missed_slot(
+        self,
         kind: str,
         cron_expr: str | None,
         interval_seconds: int | None,
@@ -766,6 +1100,7 @@ class SchedulerService:
         created_at: str | None,
         since: datetime,
         now: datetime,
+        rrule_expr: str | None = None,
     ) -> str | None:
         """窗口内最后一次应触发的槽位时间（ISO8601 UTC）；无则返回 None。"""
         if kind == "interval":
@@ -779,6 +1114,45 @@ class SchedulerService:
                 return None
             return slot.astimezone(timezone.utc).isoformat()
 
+        if kind == "rrule":  # P2-16：RRULE 的补跑槽位 = 窗口内最近一个合法触发点
+            from app.services.scheduler.rrule import RRULEError, expand_slots, parse
+
+            if not rrule_expr:
+                return None
+            try:
+                rule = parse(rrule_expr.strip())
+            except RRULEError:
+                return None
+            tz = ZoneInfo(tz_name)
+            # **W7-03**：锚点用窗口起点 ``since``（而非 created_at），且 limit 必须
+            # 能覆盖窗口内的全部槽位 —— 否则高频规则的最近槽位会被 limit 截断。
+            anchor = since
+            local_since = since.astimezone(tz)
+            local_now = now.astimezone(tz)
+            window_days = max(1, (local_now - local_since).days + 1)
+            per_day = {
+                "HOURLY": 24, "MINUTELY": 24 * 60, "SECONDLY": 24 * 60 * 60,
+            }.get(str(getattr(rule, "freq", "")).upper(), 1)
+            limit = min(20000, max(400, window_days * per_day))
+            try:
+                slots = expand_slots(
+                    rule, anchor.astimezone(tz), limit=limit, horizon_days=window_days,
+                )
+            except Exception:  # noqa: BLE001
+                return None
+            best: datetime | None = None
+            for raw in slots:
+                dt = datetime.fromisoformat(raw)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=tz)
+                if local_since <= dt <= local_now:
+                    best = dt
+                elif dt > local_now:
+                    break
+            if best is None:
+                return None
+            return best.astimezone(timezone.utc).isoformat()
+
         if not cron_expr:
             return None
         try:
@@ -786,15 +1160,12 @@ class SchedulerService:
         except Exception:  # noqa: BLE001 - 非法 cron 不补跑
             return None
 
-        cursor = since
-        last: datetime | None = None
-        for _ in range(200):  # 上限防止长窗口下的遍历放大
-            nxt = trigger.get_next_fire_time(cursor, now)
-            if nxt is None:
-                break
-            last = nxt
-            cursor = nxt + timedelta(seconds=1)
-        if last is None:
+        # **W7-03**：改用二分反解（与正常触发路径**同一套算法**）。
+        # 旧实现从 ``since`` 正向迭代 200 次 → 高频 cron（``*/1 * * * *``）在 6 小时
+        # 窗口内有 360 个触发点 → 取到的是窗口内倒数第 ~200 个（早于窗口末尾 2.7 小时）
+        # → **补跑错误的槽位**。
+        last = self._last_cron_fire(trigger, now)
+        if last is None or last < since:
             return None
         return last.astimezone(timezone.utc).isoformat()
 

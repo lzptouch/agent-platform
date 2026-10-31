@@ -14,11 +14,11 @@ from openai import OpenAI
 
 from app.core.config import settings
 
-#: provider → (取密钥, 取 base_url)。base_url 为空时用 OpenAI 官方地址。
+#: provider → (取密钥, 取 base_url)。base_url 解析为空时用该 provider 的官方地址。
 PROVIDERS: dict[str, tuple[str, str]] = {
     "dashscope": ("dashscope_api_key", "dashscope_base_url"),
     "deepseek": ("llm_api_key", "llm_base_url"),
-    "openai": ("openai_api_key", ""),
+    "openai": ("openai_api_key", "openai_base_url"),
 }
 
 DEFAULT_PROVIDER = "deepseek"
@@ -53,7 +53,8 @@ def get_llm_client(
         raise RuntimeError(
             f"未配置 LLM 密钥（provider={provider or DEFAULT_PROVIDER}），请在 .env 中填写"
         )
-    return OpenAI(api_key=key, base_url=base_url if base_url is not None else resolved_url)
+    final_url = base_url if base_url is not None else resolved_url
+    return OpenAI(api_key=key, base_url=final_url or None)
 
 
 def get_langchain_chat_model(
@@ -77,10 +78,12 @@ def get_langchain_chat_model(
         raise RuntimeError(
             f"未配置 LLM 密钥（provider={provider or DEFAULT_PROVIDER}），请在 .env 中填写"
         )
+    # 空字符串 base_url 会让 ChatOpenAI 走"无 base_url"的异常分支 → 统一归一为 None
+    final_url = base_url if base_url is not None else resolved_url
     return ChatOpenAI(
         model=model or settings.rag_model,
         api_key=key,
-        base_url=base_url if base_url is not None else resolved_url,
+        base_url=final_url or None,
         temperature=temperature,
         **(extra or {}),
     )

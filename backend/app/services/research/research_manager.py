@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from app.core.config import settings
-from app.services.research.research_config import AGENT_CONFIG, OUTPUT_CONFIG
+from app.services.research.research_config import AGENT_CONFIG
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +36,8 @@ class ResearchManager:
         self.tasks: dict[str, dict[str, Any]] = {}
         self.executor = ThreadPoolExecutor(max_workers=settings.research_max_concurrent)
         self._lock = threading.Lock()
+        # P3-12：上次落盘的任务快照——用于只**追加变化过的**行
+        self._task_snapshot: dict[str, dict] = {}
         self._load_tasks()
 
     # ------------------------------------------------------------------ #
@@ -43,18 +45,45 @@ class ResearchManager:
     # ------------------------------------------------------------------ #
     @property
     def _tasks_file(self) -> Path:
-        return self.output_dir / "tasks.json"
+        """**追加型日志**（P3-12）：``tasks.jsonl`` —— 每行一条任务的当前态。
+
+        此前是 ``tasks.json`` **全量重写整个文件**——任务数增长后 IO 放大。
+        现在只**追加变化过的行**，恢复时按 ``task_id`` 折叠（后出现的覆盖先出现的）。
+        """
+        return self.output_dir / "tasks.jsonl"
 
     def _load_tasks(self) -> None:
-        """启动时恢复历史任务（运行中的任务标记为中断）。"""
+        """启动时恢复历史任务（运行中的任务标记为中断）。
+
+        **P3-12**：读取**追加型日志**（``tasks.jsonl``）——按 ``task_id``
+        折叠（后出现的行覆盖先出现的），最后一行即该任务的当前态。
+        """
         if not self.persist or not self._tasks_file.exists():
             return
         try:
-            data = json.loads(self._tasks_file.read_text(encoding="utf-8"))
-            for task in data.get("tasks", []):
+            folded: dict[str, dict] = {}
+            for line in self._tasks_file.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    task = json.loads(line)
+                except json.JSONDecodeError:
+                    continue  # 崩溃时最后一行可能写了一半 → 跳过
+                tid = task.get("task_id")
+                if not tid:
+                    continue
+                folded[tid] = task
+            for task in folded.values():
                 if task.get("status") not in TERMINAL_STATES:
-                    task["status"] = "failed"
-                    task["error"] = task.get("error") or "服务重启，任务已中断"
+                    # P3-06：有 checkpoint → **续跑**（从最后完成阶段继续）；
+                    # 无 checkpoint → 只能标记中断。
+                    if self._has_checkpoint(str(task.get("task_id") or "")):
+                        task["status"] = "running"
+                        task["resumed_from"] = "checkpoint"
+                    else:
+                        task["status"] = "failed"
+                        task["error"] = task.get("error") or "服务重启，任务已中断"
                 self.tasks[task["task_id"]] = task
             logger.info("已恢复 %d 个研究任务记录", len(self.tasks))
         except Exception as exc:  # noqa: BLE001 —— 持久化损坏不应阻塞启动
@@ -65,13 +94,27 @@ class ResearchManager:
             logger.info("从账本补回 %d 个研究任务记录", restored)
 
     def _save_tasks(self) -> None:
+        """**只追加变化过的任务**（P3-12）——不再全量重写整个文件。"""
         if self.persist:
             try:
                 with self._lock:
-                    payload = {"tasks": list(self.tasks.values()), "updated_at": datetime.now(timezone.utc).isoformat()}
-                    self._tasks_file.write_text(
-                        json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8"
-                    )
+                    now = datetime.now(timezone.utc).isoformat()
+                    changed: list[str] = []
+                    for task_id, task in self.tasks.items():
+                        snapshot = {
+                            "task_id": task_id,
+                            "status": task.get("status"),
+                            "updated_at": task.get("updated_at") or now,
+                        }
+                        if self._task_snapshot.get(task_id) != snapshot:
+                            changed.append(task_id)
+                            self._task_snapshot[task_id] = snapshot
+                    if changed:
+                        with self._tasks_file.open("a", encoding="utf-8") as fh:
+                            for task_id in changed:
+                                fh.write(json.dumps(
+                                    self.tasks[task_id], ensure_ascii=False, default=str,
+                                ) + "\n")
             except OSError as exc:
                 logger.warning("研究任务记录落盘失败: %s", exc)
         # 写穿到 runs 账本：研究任务与其它运行一样可查、可回放
@@ -180,6 +223,56 @@ class ResearchManager:
         except Exception as exc:  # noqa: BLE001
             logger.warning("从账本恢复研究任务失败: %s", exc)
             return 0
+
+    # ------------------------------------------------------------------ #
+    # 阶段 checkpoint（P3-06）
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def _has_checkpoint(task_id: str) -> bool:
+        """该任务是否有阶段 checkpoint（可续跑）。"""
+        if not task_id:
+            return False
+        try:
+            from app.services.research.orchestrator import Orchestrator
+
+            return Orchestrator.read_checkpoint(task_id) is not None
+        except Exception:  # noqa: BLE001
+            return False
+
+    def resume_interrupted(self) -> int:
+        """启动时**续跑**带 checkpoint 的中断任务（P3-06）。
+
+        返回续跑的任务数。
+        """
+        resumed = 0
+        for task_id, task in list(self.tasks.items()):
+            if task.get("status") != "running" or not task.get("resumed_from"):
+                continue
+            original = str(task.get("original_task") or "")
+            if not original:
+                continue
+            try:
+                self._submit(task_id, original, dict(task.get("config") or {}))
+                resumed += 1
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("续跑研究任务 %s 失败: %s", task_id, exc)
+        if resumed:
+            logger.info("已从 checkpoint 续跑 %d 个研究任务", resumed)
+        return resumed
+
+    def _submit(self, task_id: str, task_text: str, config: dict) -> None:
+        """在后台线程池里执行研究任务（供启动续跑复用）。"""
+        import asyncio
+
+        from app.api.v1.research import run_research_task
+
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_in_executor(
+                self.executor, run_research_task, self, task_id, task_text, config,
+            )
+        finally:
+            loop.close()
 
     # ------------------------------------------------------------------ #
     # 任务 CRUD

@@ -7,8 +7,9 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Float, ForeignKey, Index, Integer, Text, UniqueConstraint
+from sqlalchemy import Float, ForeignKey, Index, Integer, Text, UniqueConstraint, CheckConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.orm import declared_attr
 
 
 def new_id() -> str:
@@ -38,6 +39,9 @@ class SessionRow(Base):
     config_json: Mapped[str] = mapped_column(Text, default="{}")
     owner: Mapped[str | None] = mapped_column(Text, nullable=True)
     archived: Mapped[int] = mapped_column(Integer, default=0)
+    # P3-10：**软删除**——DELETE 只写 ``deleted_at`` + ``archived=1``，
+    # 消息与 run 记录保留（可回收），不再物理级联删除。
+    deleted_at: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[str] = mapped_column(Text, default=utc_now)
     updated_at: Mapped[str] = mapped_column(Text, default=utc_now)
 
@@ -132,9 +136,10 @@ class ScheduledTaskRow(Base):
     )
     skills_json: Mapped[str] = mapped_column(Text, default="[]")
     enable_json: Mapped[str] = mapped_column(Text, default="{}")
-    schedule_kind: Mapped[str] = mapped_column(Text, nullable=False)  # cron | interval
+    schedule_kind: Mapped[str] = mapped_column(Text, nullable=False)  # cron | interval | rrule
     cron_expr: Mapped[str | None] = mapped_column(Text, nullable=True)
     interval_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    rrule_expr: Mapped[str | None] = mapped_column(Text, nullable=True)  # P2-16
     timezone: Mapped[str] = mapped_column(Text, default="Asia/Shanghai")
     enabled: Mapped[int] = mapped_column(Integer, default=1)
     allow_unattended_tools: Mapped[int] = mapped_column(Integer, default=0)
@@ -166,7 +171,7 @@ class RunRow(Base):
     session_id: Mapped[str | None] = mapped_column(
         Text, ForeignKey("sessions.id", ondelete="SET NULL"), nullable=True
     )
-    trigger: Mapped[str] = mapped_column(Text, default="manual")  # manual | schedule | api
+    trigger: Mapped[str] = mapped_column(Text, default="manual")  # manual | schedule | api | research
     scheduled_for: Mapped[str | None] = mapped_column(Text, nullable=True)  # 幂等槽位
     status: Mapped[str] = mapped_column(Text, default="queued")
     # queued | running | awaiting_approval | success | failed | skipped | interrupted | rejected
@@ -185,6 +190,16 @@ class RunRow(Base):
     tool_calls: Mapped[int | None] = mapped_column(Integer, nullable=True)
     estimated_cost: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[str] = mapped_column(Text, default=utc_now)
+    # P3-07：乐观锁版本列——并发更新同一行时后提交者收到 StaleDataError，
+    # 而非「后写覆盖」静默丢失前者修改。
+    version_id: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    @declared_attr
+    def __mapper_args__(cls) -> dict:
+        # P3-07：乐观锁——并发更新同一行时后提交者收到 StaleDataError，
+        # 而非「后写覆盖」静默丢失前者修改。
+        # 必须用 declared_attr：类定义期列对象尚未解析完成。
+        return {"version_id_col": cls.version_id}
 
     events: Mapped[list[RunEventRow]] = relationship(
         back_populates="run", cascade="all, delete-orphan", order_by="RunEventRow.seq"
@@ -194,6 +209,11 @@ class RunRow(Base):
         UniqueConstraint("task_id", "scheduled_for", name="uq_runs_task_slot"),
         Index("idx_runs_task_started", "task_id", "started_at"),
         Index("idx_runs_status", "status"),
+        # P3-08：trigger 枚举约束（此前可写入任意字符串）
+        CheckConstraint(
+            "trigger IN ('manual','schedule','api','research')",
+            name="ck_runs_trigger",
+        ),
     )
 
 
@@ -373,6 +393,8 @@ class ArtifactRow(Base):
     kind: Mapped[str] = mapped_column(Text, default="other")
     size: Mapped[int | None] = mapped_column(Integer, nullable=True)
     previewable: Mapped[int] = mapped_column(Integer, default=0)
+    # F-UX-02：浏览器类产物的**页面地址**（截图文件之外的来源 URL）
+    url: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[str] = mapped_column(Text, default=utc_now)
 
     __table_args__ = (

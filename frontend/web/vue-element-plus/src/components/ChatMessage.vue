@@ -38,13 +38,13 @@
 
       <!-- 状态行 -->
       <div v-if="message.error" class="status status-error">
-        ⚠ {{ message.error }}<span v-if="elapsedLabel" class="elapsed">（{{ elapsedLabel }}）</span>
+        ⚠ {{ message.error }}<span v-if="timingLabel" class="elapsed">（{{ timingLabel }}）</span>
       </div>
       <div v-else-if="message.running" class="status status-running">
-        <el-icon class="is-loading"><Loading /></el-icon> 正在生成…<span v-if="elapsedLabel" class="elapsed"> {{ elapsedLabel }}</span>
+        <el-icon class="is-loading"><Loading /></el-icon> 正在生成…<span v-if="timingLabel" class="elapsed"> {{ timingLabel }}</span>
       </div>
       <div v-else-if="message.done" class="status status-done">
-        ✓ 已完成<span v-if="elapsedLabel" class="elapsed">（{{ elapsedLabel }}）</span>
+        ✓ 已完成<span v-if="timingLabel" class="elapsed">（{{ timingLabel }}）</span>
       </div>
     </div>
   </div>
@@ -80,6 +80,8 @@ interface ChatMessageModel {
   done?: boolean
   /** S8：耗时三态（毫秒时间戳） */
   startedAt?: number
+  /** P4-12：首个 token 的到达时刻（发送 → 首 token → 完成） */
+  firstTokenAt?: number
   finishedAt?: number
 }
 
@@ -105,14 +107,33 @@ const elapsedMs = computed(() => {
   return Math.max(0, end - started)
 })
 
-const elapsedLabel = computed(() => {
-  const ms = elapsedMs.value
-  if (!ms) return ''
+function formatMs(ms: number): string {
+  if (!ms || ms < 0) return ''
   if (ms < 1000) return `${ms}ms`
   if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`
   const m = Math.floor(ms / 60_000)
   const s = Math.round((ms % 60_000) / 1000)
   return `${m}m${s}s`
+}
+
+const elapsedLabel = computed(() => formatMs(elapsedMs.value))
+
+/** P4-12：首 token 之前的等待时长（发送 → 首 token） */
+const firstTokenLabel = computed(() => {
+  const started = props.message.startedAt
+  const first = props.message.firstTokenAt
+  if (!started || !first) return ''
+  return formatMs(first - started)
+})
+
+/** P4-12：三态耗时文案——「首字 x · 总 y」 */
+const timingLabel = computed(() => {
+  const first = firstTokenLabel.value
+  const total = elapsedLabel.value
+  if (first && total) return `首字 ${first} · 总 ${total}`
+  if (first) return `首字 ${first}`
+  if (total) return `总 ${total}`
+  return ''
 })
 
 onMounted(() => {

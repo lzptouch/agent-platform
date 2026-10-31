@@ -13,7 +13,13 @@ from pathlib import Path
 
 import pytest
 
-from app.services.chains.mcp.transport import MCPEndpoint, MCPConnection, MCPError, close_all
+from app.services.chains.mcp.transport import (
+    MCPEndpoint,
+    MCPConnection,
+    MCPError,
+    TRANSPORTS,
+    close_all,
+)
 from app.services.scheduler.delivery import (
     DeliveryConfig,
     DeliveryPayload,
@@ -109,10 +115,25 @@ class TestDelivery:
         assert missing == []
 
     def test_载荷缺字段(self):
+        """只有 ``task_name`` / ``status`` 必须**非空**。
+
+        **W9-01 / AUD2-H07**：旧语义把「值为空」当「字段缺失」——
+        ``duration_ms``（恒 0）/ ``summary``（可为空）/ ``artifacts``（可为空）
+        全被判为缺失 → **所有通知 100% 被拒**。
+        现在：``duration_ms=0`` / ``summary=""`` / ``artifacts=[]`` 都是**合法**的。
+        """
         p = self._payload()
+        # 合法：零值 / 空串 / 空列表都不算缺字段
+        p.duration_ms = 0
         p.summary = ""
-        missing = validate_payload(p)
-        assert "summary" in missing
+        p.artifacts = []
+        assert validate_payload(p) == []
+
+        # 真正缺失的字段仍要拒绝
+        p2 = self._payload()
+        p2.task_name = ""
+        missing = validate_payload(p2)
+        assert "task_name" in missing
 
     def test_投递成功(self):
         cfg = DeliveryConfig(type="local", target="desktop")
@@ -181,7 +202,8 @@ class TestUnattendedPolicy:
 # --------------------------------------------------------------------------- #
 class TestMCPTransport:
     def test_三传输定义(self):
-        assert set(TRANSPORTS if False else ("stdio", "sse", "http")) == {"stdio", "sse", "http"}
+        # **W11-01**：此前测的是 `if False else` 里的**字面量**（与被测常量无关）
+        assert set(TRANSPORTS) == {"stdio", "sse", "http"}
 
     def test_连接复用(self):
         from app.services.chains.mcp.transport import get_connection, pool_size

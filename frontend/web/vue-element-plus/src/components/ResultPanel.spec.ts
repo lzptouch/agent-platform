@@ -30,9 +30,10 @@ describe('ResultPanel（右栏四视图）', () => {
     await w.findAll('.tab')[2].trigger('click')
     expect(w.find('.result-changes').exists() || w.text().includes('暂无变更')).toBe(true)
 
-    // 切换到浏览器（占位）
+    // 切换到浏览器视图（**F-UX-02**：不再是占位，有真实数据源）
     await w.findAll('.tab')[3].trigger('click')
-    expect(w.text()).toContain('浏览器视图')
+    expect(w.text()).toContain('暂无浏览器页面')
+    expect(w.text()).toContain('kind = "browser"')
   })
 
   it('无 runId 时产物视图为空态', async () => {

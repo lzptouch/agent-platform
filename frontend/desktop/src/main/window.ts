@@ -1,9 +1,11 @@
 /** 主窗口管理：创建、引导加载、CSP、加载失败重试。 */
-import { BrowserWindow, app } from "electron";
+import { BrowserWindow, app, shell } from "electron";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 import { PATHS } from "../shared/protocol";
 import { supervisor } from "./backend";
+import { isLocalOrigin } from "./navigation";
 import { backendState } from "./state";
 import { getPaths, resolveSplashPath } from "./paths";
 import { getSettings } from "./settings";
@@ -11,6 +13,12 @@ import { getSettings } from "./settings";
 let mainWindow: BrowserWindow | null = null;
 let splashWindow: BrowserWindow | null = null;
 let loadRetries = 0;
+
+// 应用是否正在退出：**退出中不能拦截窗口关闭**，否则 app.quit() 永远关不掉窗口。
+let quitting = false;
+app.on("before-quit", () => {
+  quitting = true;
+});
 const MAX_LOAD_RETRIES = 3;
 
 export function getMainWindow(): BrowserWindow | null {
@@ -29,7 +37,10 @@ export function showSplash(): void {
     webPreferences: { contextIsolation: true },
   });
   void splashWindow
-    .loadFile(resolveSplashPath())
+    // 不能用 loadFile：它内部走 url.format，**不会**对 pathname 做百分号编码，
+    // 而 macOS 的安装目录名带空格（productName = "Agent Desktop"），
+    // 于是 file:///…/Agent Desktop.app/… 解析失败 → ERR_FAILED (-2) 启动页白屏。
+    .loadURL(pathToFileURL(resolveSplashPath()).toString())
     .catch((err: Error) => {
       // 启动页缺失/加载失败不应中断启动：关掉它并记录原因，主窗口会接手
       console.error(`[window] 启动页加载失败（${resolveSplashPath()}）：${err.message}`);
@@ -65,14 +76,49 @@ export function createMainWindow(): void {
   });
 
   // 拦截新开窗口与导航到非 loopback 的请求
-  mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  // **W8-13 / AUD2-M20**：外部链接改为交给系统浏览器打开（此前一律 deny
+  // → 研究结果外链、产物下载、`/docs` 链接在桌面端**全部点不动**；
+  // 而 `shell.openExternal` 虽在 IPC 白名单实现却**零调用方**）。
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    try {
+      const parsed = new URL(url);
+      const handle = supervisor.handle();
+      const local = handle ? `http://127.0.0.1:${handle.port}` : null;
+      if (local && parsed.origin === local) {
+        return { action: "deny" }; // 本地页面仍走应用内导航
+      }
+      void shell.openExternal(url); // 外部链接交给系统浏览器
+    } catch {
+      /* 非法 URL 一律拒绝 */
+    }
+    return { action: "deny" };
+  });
   mainWindow.webContents.on("will-navigate", (event, url) => {
     const handle = supervisor.handle();
-    if (handle && !url.startsWith(`http://127.0.0.1:${handle.port}`)) {
+    // **W8-04 / AUD2-H20**：此前用 `url.startsWith("http://127.0.0.1:<port>")`
+    // 前缀匹配 → `http://127.0.0.1:8080.evil.com/` **满足该前缀** → 放行到外部站点；
+    // 且 `handle` 为 null（握手失败 / 后端崩溃）时守卫**整体失效**，任意导航都被允许。
+    // 修复：origin **精确**比较；后端未就绪时**一律拒绝**。
+    if (!handle) {
+      event.preventDefault();
+      return;
+    }
+    const allowed = `http://127.0.0.1:${handle.port}`;
+    try {
+      if (new URL(url).origin !== allowed) {
+        event.preventDefault();
+      }
+    } catch {
       event.preventDefault();
     }
   });
 
+  // **D5**：点 × **不销毁**窗口，只隐藏 —— 销毁后托盘「打开主窗口」永远唤不回来。
+  mainWindow.on("close", (event) => {
+    if (quitting) return; // 应用正在退出 → 放行关闭，否则 app.quit() 关不掉窗口
+    event.preventDefault();
+    mainWindow?.hide();
+  });
   mainWindow.on("closed", () => {
     mainWindow = null;
   });
@@ -100,9 +146,19 @@ export function rebootstrap(): void {
 }
 
 function supervisorNonce(): string {
-  // nonce 由 backend.ts 生成，经这里读取供 bootstrap URL 使用
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (supervisor as any).nonceValue?.() ?? "";
+  // nonce 由 backend.ts 生成，经这里读取供 bootstrap URL 使用。
+  // **D15**：此前 `(supervisor as any).nonceValue?.() ?? ""` —— nonceValue() 是**公开方法**，
+  // `as any` 掩盖了「取不到 nonce 时静默返回空串 → 引导 401」。
+  const nonce = supervisor.nonceValue();
+  if (!nonce) {
+    throw new Error("后端未就绪：缺少引导 nonce");
+  }
+  return nonce;
+}
+
+/** URL 是否指向本地 sidecar（origin **精确**比较）。 */
+function isLocalBackendUrl(url: string): boolean {
+  return isLocalOrigin(url, supervisor.handle()?.port);
 }
 
 function loadWithRetry(url: string): void {

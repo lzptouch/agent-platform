@@ -25,18 +25,15 @@ from app.services.exec.catalog import (
     split_core_and_catalog,
 )
 from app.services.exec.context import (
-    COMPACT_THRESHOLD,
     NINE_SECTIONS,
-    SUMMARY_THRESHOLD,
     ContextBudget,
     build_nine_section_summary,
     compress,
     estimate_tokens,
     extract_sections,
     trim_messages,
-    truncate_tool_result,
 )
-from app.services.exec.roles import BUILTIN_ROLES, get_role
+from app.services.exec.team.roles import BUILTIN_ROLE_META, BUILTIN_ROLE_PROMPTS
 
 
 @pytest.fixture()
@@ -150,13 +147,6 @@ class TestContextBudget:
         assert "第19轮" in kept, "最近一轮应保留"
         assert "第0轮" not in kept, "最旧一轮应被裁掉"
 
-    def test_工具结果动态截断(self):
-        content = "头" + "中" * 5000 + "尾"
-        out = truncate_tool_result(content, 100)
-        assert len(out) < len(content)
-        assert "已省略" in out
-        assert out.startswith("头") and out.endswith("尾")
-
     def test_预算内不裁剪(self):
         budget = ContextBudget.for_model("qwen-plus", 0.85)
         messages = [{"role": "user", "content": "短"}]
@@ -174,8 +164,11 @@ class TestCompression:
         assert extract_sections(summary) == list(NINE_SECTIONS)
 
     def test_阈值定义(self):
-        assert COMPACT_THRESHOLD == 0.70
-        assert SUMMARY_THRESHOLD == 0.85
+        """真实阈值走 ``settings``（P2-13 删除了 context.py 里的重复常量）。"""
+        from app.core.config import settings
+
+        assert settings.context_compact_threshold == 0.70
+        assert settings.context_summary_threshold == 0.85
 
     def test_压缩保留最近N轮原文(self):
         budget = ContextBudget.for_model("qwen-plus", 0.85)
@@ -290,14 +283,15 @@ class TestPricing:
 # --------------------------------------------------------------------------- #
 class TestContextRoles:
     def test_压缩角色工具集为空(self):
-        assert get_role("compact").tools == ()
-        assert get_role("contextSummary").tools == ()
+        assert BUILTIN_ROLE_META["compact"]["tools"] == ()
+        assert BUILTIN_ROLE_META["contextSummary"]["tools"] == ()
 
     def test_记忆筛选角色0工具(self):
-        assert get_role("memorySelector").tools == ()
+        assert BUILTIN_ROLE_META["memorySelector"]["tools"] == ()
 
     def test_三个内置角色齐备(self):
-        assert set(BUILTIN_ROLES) == {"compact", "contextSummary", "memorySelector"}
+        assert set(BUILTIN_ROLE_PROMPTS) == {"compact", "contextSummary", "memorySelector"}
+        assert set(BUILTIN_ROLE_META) == {"compact", "contextSummary", "memorySelector"}
 
 
 # --------------------------------------------------------------------------- #

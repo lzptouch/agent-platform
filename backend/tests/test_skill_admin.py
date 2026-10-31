@@ -71,7 +71,9 @@ def test_export_import_roundtrip(manager):
 
     data, filename = manager.export_zip("pack-skill")
     assert filename == "pack-skill.zip"
-    assert b"SKILL.md" in data or True
+    # **W11-01**：`or True` 使内容校验恒真 → 导出内容从未被验证
+    assert b"SKILL.md" in data
+    assert b"note.txt" in data
 
     manager.delete("pack-skill")
     assert manager.get("pack-skill") is None

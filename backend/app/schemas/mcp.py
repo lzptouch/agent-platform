@@ -11,7 +11,14 @@ class McpServerInfo(BaseModel):
     name: str
     stage: str = ""
     description: str = ""
-    status: str = Field(default="ready", description="ready / disabled / error")
+    status: str = Field(
+        default="ready",
+        description="真实连接状态：connected / disconnected / error / disabled（兼容旧的 ready）",
+    )
+    # P4-11：可读的失败/状态原因（列表页即可见，不必进详情页）
+    reason: str = ""
+    read_only: bool = False
+    last_ok_at: str | None = None
 
 
 class McpServerDetail(McpServerInfo):

@@ -6,6 +6,9 @@ from app.core.config import settings
 
 
 class SerperClient:
+    #: 默认搜索页码。P1-06：原为 2（硬编码丢弃搜索结果第 1 页），现默认第 1 页。
+    DEFAULT_PAGE = 1
+
     def __init__(self):
         # Set up the URL and headers for the Serper API
         self.url = "https://google.serper.dev/search"
@@ -14,9 +17,9 @@ class SerperClient:
             "Content-Type": "application/json"
         }
 
-    def serper(self, query: str):
+    def serper(self, query: str, page: int | None = None):
         # Configure the query parameters for Serper API
-        serper_settings = {"q": query, "page": 2}
+        serper_settings = {"q": query, "page": self.DEFAULT_PAGE if page is None else page}
 
         # Check if the query contains Chinese characters and adjust settings accordingly
         if self._contains_chinese(query):

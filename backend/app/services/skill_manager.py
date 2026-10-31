@@ -23,7 +23,11 @@ from app.core.config import PROJECT_ROOT, settings
 logger = logging.getLogger(__name__)
 
 # SKILL.md frontmatter 允许的字段
-ALLOWED_PROPERTIES = {"name", "description", "license", "allowed-tools", "metadata", "compatibility"}
+# P2-06：白名单收敛为**单一真相源**——直接引用 `chains/skills/spec.py` 的
+# ALLOWED_FIELDS（两套并集），避免两处各写一份、互相冲突。
+from app.services.chains.skills.spec import ALLOWED_FIELDS as _ALLOWED_FIELDS
+
+ALLOWED_PROPERTIES = set(_ALLOWED_FIELDS)
 
 # 打包 Skill 时需要排除的内容
 EXCLUDE_DIRS = {"__pycache__", "node_modules", "evals"}
@@ -53,6 +57,10 @@ def rel_to_root(path: Path) -> str:
     except ValueError:
         return str(path)
 
+
+#: Skill 名称白名单（**W0-04**：front-matter 的 name 必须是安全标识符，
+#: 否则 zip 导入会写到自定义技能目录**之外**）
+_SAFE_SKILL_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 
 class SkillManager:
     """管理内置 + 自定义 Skill。"""
@@ -96,6 +104,8 @@ class SkillManager:
                     "skill_md_path": str(skill_md.resolve()),
                     "skill_md_rel": rel_to_root(skill_md),
                     "content": content,
+                    # P3-13：保留原始 front matter（供 skills 表的 frontmatter_json 列写入）
+                    "frontmatter": meta,
                     "resources": self._list_resources(skill_dir),
                     "source": source,
                     "mtime": skill_md.stat().st_mtime,
@@ -156,6 +166,11 @@ class SkillManager:
                     rec.description = skill["description"]
                     rec.source = skill["source"]
                     rec.path = skill["path"]
+                    # P3-13：该列此前**全仓无写入方**（恒为 "{}"）→
+                    # 现在写入真实的 front matter。
+                    rec.frontmatter_json = json.dumps(
+                        skill.get("frontmatter") or {}, ensure_ascii=False,
+                    )
                     rec.stale = 0
                     rec.updated_at = utc_now()
                     skill["enabled"] = bool(rec.enabled)
@@ -175,6 +190,30 @@ class SkillManager:
     def list_skills(self) -> list[dict]:
         return list(self.skills.values())
 
+    def match_skills(self, query: str, top_k: int = 3) -> list[dict]:
+        """按 query 匹配 Skill（**P2-05**：轻量索引渐进披露）。
+
+        此前 ``build_system_prompt`` 把**所有启用 Skill** 的名称+描述全量注入；
+        现在先用轻量索引（只读 front matter）匹配 Top-K，**只注入命中的**。
+        无命中时由调用方回退全量（保证不漏）。
+        """
+        from app.services.chains.skills.index import build_index, match
+
+        try:
+            # **F-EXT-02**：索引必须**同时**覆盖自定义目录
+            # （此前只扫内置 → 自定义 Skill 永远匹配不到）
+            dirs = [self.custom_dir, settings.skills_dir]
+            entries = build_index([d for d in dirs if d is not None])
+            hits = match(entries, query, top_k=top_k)
+        except Exception:  # noqa: BLE001 - 索引不可用不应阻断
+            return []
+        out: list[dict] = []
+        for entry in hits:
+            skill = self.skills.get(entry.name)
+            if skill is not None:
+                out.append(skill)
+        return out
+
     def get(self, name: str) -> dict | None:
         return self.skills.get(name)
 
@@ -189,7 +228,12 @@ class SkillManager:
             return None
         base = (PROJECT_ROOT / skill["path"]).resolve()
         target = (base / resource).resolve()
-        if not str(target).startswith(str(base)) or not target.is_file():
+        # **W0-06 / AUD-H18（前缀匹配可绕过）**
+        # ``str(target).startswith(str(base))`` 是**纯字符串前缀**、缺少路径分隔符边界：
+        # base=``<root>/skills/foo``、resource=``../foo_evil/secret.md``
+        # → target=``<root>/skills/foo_evil/secret.md`` → startswith 为真 → **放行到同级目录**。
+        # 现在用 ``is_relative_to``（真正的包含性判断）。
+        if not target.is_relative_to(base) or not target.is_file():
             return None
         return target
 
@@ -347,6 +391,14 @@ class SkillManager:
         if not meta or not meta.get("name"):
             raise SkillValidationError("SKILL.md 缺少有效 frontmatter (name)")
         name = str(meta["name"]).strip()
+        # **W0-04 / AUD-C05（front-matter name 未校验 → 任意目录写入）**
+        # zip **成员路径**做了 ``..`` 检查，但 front-matter 的 ``name`` 没有 →
+        # ``name: ../../../../tmp/evil`` 会让 ``mkdir(parents=True)`` 在
+        # 自定义技能目录**之外**建目录并写入 SKILL.md（含可执行 scripts/）。
+        if not _SAFE_SKILL_NAME.match(name):
+            raise SkillValidationError(
+                f"Skill 名称非法（只允许小写字母/数字/短横线/下划线）: {name!r}"
+            )
 
         existing = self.skills.get(name)
         if existing and existing["source"] == "builtin":
@@ -365,7 +417,9 @@ class SkillManager:
             ok, msg, _ = self.validate_skill(staging)
             if not ok:
                 raise SkillValidationError(msg)
-            dest = base / name
+            dest = (base / name).resolve()
+            if dest.parent != base.resolve():
+                raise SkillValidationError(f"Skill 名称越界: {name!r}")
             if dest.exists():
                 shutil.rmtree(dest)
             shutil.move(str(staging), str(dest))
@@ -406,6 +460,7 @@ class SkillManager:
         *,
         mode: str = "work",
         team: dict | None = None,
+        query: str = "",
     ) -> str:
         """构建 system prompt。
 
@@ -416,6 +471,13 @@ class SkillManager:
         """
         output_dir = settings.output_dir
         selected = self.resolve_selection(skill_names if skill_names is not None else ([] if mode == "chat" else None))
+
+        # P2-05：**渐进披露**——请求未显式指定 Skill 时，用轻量索引按 query 匹配
+        # Top-K，只注入命中的（未命中则保持全量回退，保证不漏）。
+        if query and not skill_names and mode != "chat":
+            matched = self.match_skills(query, top_k=settings.skill_match_top_k)
+            if matched:
+                selected = matched
 
         if mode == "chat":
             parts: list[str] = [

@@ -27,6 +27,51 @@ BACKEND_DIR = REPO_ROOT / "backend"
 REPORT_DIR = REPO_ROOT / "tests" / "report"
 WORK_DIR = REPO_ROOT / "tests" / ".work"
 
+#: 前端源码与"后端实际托管的"构建产物
+FRONTEND_SRC = REPO_ROOT / "frontend" / "web" / "vue-element-plus" / "src"
+FRONTEND_DIST = REPO_ROOT / "frontend" / "dist"
+BUILD_SCRIPT = REPO_ROOT / "frontend" / "scripts" / "build-frontend.mjs"
+
+
+def ensure_frontend_built(force: bool = False) -> str:
+    """保证后端托管的前端产物是最新的；陈旧则重建。
+
+    Why 需要这一步：
+      e2e 走的是**后端托管的** ``frontend/dist``（见 backend/app/core/config.py
+      的 ``frontend_dist_dir``），而 vite 的构建输出在
+      ``frontend/web/vue-element-plus/dist``——两者不是同一个目录，
+      必须经 ``frontend/scripts/build-frontend.mjs`` 拷贝才会同步。
+
+      少了这一步，e2e 会在**几天前的旧 bundle** 上跑，测出来的失败全是幻觉：
+      实测踩过——dist 停在 10-25，而源码早已改过，
+      WEB-33/WEB-34 报"速记形态失效""附件上限无提示"，
+      重建后两个用例直接通过，产品本身没有任何问题。
+
+    返回一行人类可读的状态说明（供测试报告留痕）。
+    """
+    if not BUILD_SCRIPT.exists():
+        return "未找到前端构建脚本，跳过前端新鲜度检查"
+    newest_src = 0.0
+    for path in FRONTEND_SRC.rglob("*"):
+        if path.is_file() and path.suffix in {".ts", ".vue", ".css", ".js"}:
+            newest_src = max(newest_src, path.stat().st_mtime)
+    index = FRONTEND_DIST / "index.html"
+    if not force and index.exists() and index.stat().st_mtime >= newest_src:
+        return f"前端产物已是最新（{index.stat().st_mtime:.0f}）"
+    if newest_src == 0.0:
+        return "未找到前端源码，跳过前端新鲜度检查"
+    proc = subprocess.run(
+        ["node", str(BUILD_SCRIPT)],
+        cwd=str(REPO_ROOT / "frontend"),
+        capture_output=True,
+        text=True,
+        timeout=600,
+    )
+    if proc.returncode != 0:
+        tail = (proc.stderr or proc.stdout or "").strip().splitlines()[-8:]
+        return "前端重建失败（e2e 将跑在旧产物上）：" + " | ".join(tail)
+    return "前端产物已重建（旧产物会让 e2e 测到过期界面）"
+
 
 # --------------------------------------------------------------------------- #
 # 用例结果与缺陷分类
@@ -197,6 +242,8 @@ class BackendProcess:
         # 表现为「跑到一半所有接口超时」（批次 03 落盘日志上线后暴露）。
         self._output_tail: deque[str] = deque(maxlen=300)
         self._reader: threading.Thread | None = None
+        #: 前端产物新鲜度说明（供测试报告留痕）
+        self.frontend_note: str = ""
 
     @property
     def base_url(self) -> str:
@@ -217,6 +264,9 @@ class BackendProcess:
         return "".join(list(self._output_tail)[-lines:])
 
     def start(self, timeout: float = 90.0) -> tuple[bool, str]:
+        # 先确保前端产物是最新的：后端托管的就是 frontend/dist，
+        # 产物过期 → e2e 在旧界面上跑，失败全是幻觉。
+        self.frontend_note = ensure_frontend_built()
         env = dict(os.environ)
         env["AGENT_DESKTOP"] = "0"
         # e2e 环境把单文件上传上限调到 1MB（默认值 50MB 由后端单测冻结），

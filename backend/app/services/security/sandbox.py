@@ -31,13 +31,22 @@ def probe() -> SandboxCapability:
 
     当前实现：全部平台均为 ``policy_only``（规则集 + 写前校验），无原生隔离。
     后续增强：macOS 可升级为 ``sandbox-exec``（os_native）。
+
+    **W1-07 / AUD2-H43（沙箱能力诚实化）**：
+    此前 ``available=True`` **恒定** —— 而同一对象的 ``message`` 明说
+    「无操作系统级沙箱隔离」→ ``api/v1/desktop.py`` 直接把它暴露成
+    ``sandbox_available`` → 前端 / 桌面壳显示「沙箱可用」，
+    用户据此以为存在 OS 级隔离（**与 F-SEC-12「沙箱能力诚实化」直接冲突**）。
+
+    现在：``available`` 的语义收紧为「**存在任何隔离机制**」——
+    仅策略层拦截时为 ``False``（保留 ``level`` / ``message`` 供 UI 展示）。
     """
     platform = sys.platform
     if platform == "darwin" and _has_sandbox_exec():
         # 尚未接入原生实现，保持诚实：有能力但未启用
         return SandboxCapability(
             level="policy_only",
-            available=True,
+            available=False,
             platform=platform,
             enforced_paths=True,
             enforced_commands=True,
@@ -45,7 +54,7 @@ def probe() -> SandboxCapability:
         )
     return SandboxCapability(
         level="policy_only",
-        available=True,
+        available=False,
         platform=platform,
         enforced_paths=True,
         enforced_commands=True,

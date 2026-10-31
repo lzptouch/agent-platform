@@ -124,8 +124,13 @@ class RunService:
             return ws.id, Path(ws.root_path)
         current = svc.current()
         if current is not None:
+            # 用户**显式切换**过工作空间 → 遵从用户意图
             return current.id, Path(current.root_path)
-        return None, get_workspace_dir()
+        # P2-19：未显式切换 → **自动创建独立工作区**（``wb-{日期}-{短ID}``）。
+        # 此前走 ``get_workspace_dir()``（全局目录）→ 新任务不会得到独立目录，
+        # 「一任务一工作空间」不成立，且 ``meta.workspace_id`` 为空。
+        ws_id, ws_root = svc.bind_for_run(None)
+        return ws_id, Path(ws_root)
 
     def get_run(self, run_id: str) -> RunOut | None:
         with db_session() as db:
@@ -159,15 +164,23 @@ class RunService:
                 row.status = "awaiting_approval"
 
     def approve_plan(self, run_id: str, edited_plan: list[dict] | None = None) -> RunOut | None:
+        """批准计划 → 状态转 ``queued``。
+
+        **P3-15**：同时把**恢复参数**写入 ``meta_json``（含 ``resume_of``
+        指向与 ``approved_at``）——这样进程重启后能扫描并续跑
+        （此前用 daemon 线程，进程退出执行即丢）。
+        """
         with db_session() as db:
             row = db.get(RunRow, run_id)
             if row is None or row.status != "awaiting_approval":
                 return None
+            meta = json.loads(row.meta_json or "{}")
             if edited_plan is not None:
                 row.plan_json = json.dumps(edited_plan, ensure_ascii=False)
-                meta = json.loads(row.meta_json or "{}")
                 meta["plan_edited"] = True
-                row.meta_json = json.dumps(meta, ensure_ascii=False)
+            meta["resume_of"] = run_id
+            meta["approved_at"] = utc_now()
+            row.meta_json = json.dumps(meta, ensure_ascii=False)
             row.status = "queued"
             db.flush()
             db.refresh(row)
@@ -198,9 +211,19 @@ class RunService:
                 row = db.get(RunRow, run_id)
                 if row is None:
                     return
-                row.status = status
+                # **W2-03 / AUD-H06（终态守卫）**
+                # 此前 `finish()` **无条件**改写 status → 迟到的 `finish("success")`
+                # 会覆盖 `interrupt_run()` 写入的 `interrupted`、或 `reject_run()` 的
+                # `rejected` → 用户明明取消了，run 却显示成功。
+                # 现在：**已处于终态则不再改写 status**，只补齐 finished_at 等附属信息。
+                already_terminal = row.status in TERMINAL_STATUSES
+                if not already_terminal:
+                    row.status = status
                 row.finished_at = utc_now()
                 # S5 / WP-5.5.4：用量聚合（token / 成本写入 runs）
+                # **W2-03**：`aggregate_run` 已改为**纯读**（此前它在自己的 session 里
+                # 写回本行 → version_id 自增 → 本 session 的 flush 匹配 0 行
+                # → StaleDataError → 收尾整体失败）。
                 try:
                     from app.services.exec.accounting import aggregate_run
 
@@ -303,6 +326,23 @@ class RunService:
     # ------------------------------------------------------------------ #
     # 调度辅助
     # ------------------------------------------------------------------ #
+    def get_by_task_slot(self, task_id: str, scheduled_for: str) -> RunOut | None:
+        """按 ``(task_id, scheduled_for)`` 取 run（幂等槽位查询）。
+
+        **F-SCH-09 / AUD2-M04**：补跑需要知道「这次到底跑没跑」，
+        以此回填状态（此前无条件写 "rescued"，明明被跳过也报已补跑）。
+        """
+        from sqlalchemy import select
+
+        with db_session() as db:
+            row = db.scalar(
+                select(RunRow).where(
+                    RunRow.task_id == task_id,
+                    RunRow.scheduled_for == scheduled_for,
+                )
+            )
+            return run_to_out(row) if row is not None else None
+
     def count_today_runs(self, task_id: str, tz: str | None = None) -> int:
         """统计任务「今天」的运行数（**按任务时区**的本地自然日）。
 
@@ -372,19 +412,56 @@ class RunService:
                 row.finished_at = utc_now()
 
     def cleanup(self, retention_days: int = 90, keep_per_task: int = 500) -> int:
-        """清理过期运行记录（级联删除事件）。返回删除条数。"""
+        """清理过期运行记录（级联删除事件）。返回删除条数。
+
+        **P3-09**：``keep_per_task`` 此前**被声明但从未使用**——只按时间删。
+        现在实现两条语义：
+
+        ① **时间维度**：早于 ``retention_days`` 的**终态** run 删除；
+        ② **每任务维度**：每个任务只保留**最近 N 条终态 run**，
+           超出的部分**即使未到保留期也删**（防止高频任务无限膨胀）。
+
+        未到保留期的**其他任务**记录不受影响（只裁剪超出配额的）。
+        """
         cutoff = datetime.fromtimestamp(
             time.time() - retention_days * 86400, tz=timezone.utc
         ).isoformat()
         removed = 0
         with db_session() as db:
-            old = db.scalars(
+            doomed: dict[str, RunRow] = {}
+
+            # ① 时间维度
+            for row in db.scalars(
                 select(RunRow).where(
                     RunRow.created_at < cutoff,
                     RunRow.status.in_(tuple(TERMINAL_STATUSES)),
                 )
-            ).all()
-            for row in old:
+            ).all():
+                doomed[row.id] = row
+
+            # ② 每任务维度：只保留最近 N 条终态 run
+            if keep_per_task > 0:
+                task_ids = db.scalars(
+                    select(RunRow.task_id)
+                    .where(
+                        RunRow.task_id.is_not(None),
+                        RunRow.status.in_(tuple(TERMINAL_STATUSES)),
+                    )
+                    .distinct()
+                ).all()
+                for tid in task_ids:
+                    rows = db.scalars(
+                        select(RunRow)
+                        .where(
+                            RunRow.task_id == tid,
+                            RunRow.status.in_(tuple(TERMINAL_STATUSES)),
+                        )
+                        .order_by(RunRow.created_at.desc(), RunRow.id.desc())
+                    ).all()
+                    for row in rows[keep_per_task:]:
+                        doomed.setdefault(row.id, row)
+
+            for row in doomed.values():
                 db.delete(row)
                 removed += 1
         return removed

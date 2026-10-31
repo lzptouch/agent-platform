@@ -50,7 +50,15 @@ class GPTAnswer:
         # LangChain 客户端由 app/core/llm.py 统一提供（与主链路同源）
         from app.core.llm import get_langchain_chat_model
 
-        llm = get_langchain_chat_model(model=self.model_name, api_key=self.api_key, temperature=0.0)
+        # P1-05：必须显式传 provider="openai"——否则 resolve_provider(None) 落到默认
+        # provider（deepseek），会用 OpenAI 的 key + gpt-4o 打 DeepSeek 端点，导致回答生成必然失败。
+        llm = get_langchain_chat_model(
+            model=self.model_name,
+            provider="openai",
+            api_key=self.api_key,
+            base_url=settings.openai_base_url,
+            temperature=0.0,
+        )
 
         template = self.config["template"]
         prompt_template = PromptTemplate(

@@ -9,6 +9,9 @@ files:
   - dist-main/**
   - dist-preload/**
   - package.json
+  # 不把 sourcemap 打进安装包：既占体积，也等于把第三方源码原样发出去
+  # （electron-updater 自带 50 个 .map；PAK-11 要求 asar 内无 .map）
+  - "!**/*.map"
 extraResources:
   - from: ../dist         # 前端产物在 frontend/dist（桌面工程现位于 frontend/desktop/）
     to: frontend           # 前端产物（不进 asar，经 AGENT_FRONTEND_DIST 传给后端）

@@ -187,12 +187,36 @@ class TestSingleMainLoop:
         # 允许 agent_service（主链路）与 run_executor（执行器）各一处
         assert len(hits) <= 3, f"主循环实现疑似重复：{hits}"
 
-    def test_遗留agent包被标注为旧链路(self):
-        p = APP_DIR / "services" / "agent" / "service.py"
-        text = p.read_text(encoding="utf-8")
-        assert "legacy" in text.lower() or "旧链路" in text or "已下线" in text, (
-            "app/services/agent/ 必须显式标注为遗留链路，避免被误认为第二套主循环"
+    def test_遗留agent包已删除(self):
+        """P2-24：``app/services/agent/``（第二套 function-calling 循环）**已删除**。
+
+        此前它自述「不落账、不参与统一执行器」→ 全仓存在两套主循环。
+        现在 ``/agent/chat`` 已转调统一执行器，遗留包整体删除。
+        """
+        legacy = APP_DIR / "services" / "agent"
+        assert not legacy.exists(), (
+            f"遗留 agent 包应已删除（P2-24），仍存在: {legacy}"
         )
+
+    def test_仅一套function_calling主循环(self):
+        """架构断言：全仓**只有一套** function-calling 循环（P2-24 验收②）。"""
+        hits: list[str] = []
+        for p in APP_DIR.rglob("*.py"):
+            rel = p.relative_to(APP_DIR).as_posix()
+            # ``mcp/clients/*`` 是**模型客户端**（不是 Agent 循环）→ 排除
+            if rel.startswith("mcp/clients/"):
+                continue
+            text = p.read_text(encoding="utf-8", errors="ignore")
+            if "chat.completions.create" in text and "tools=" in text:
+                hits.append(rel)
+        # 只允许 agent_service（主循环）一处
+        assert len(hits) <= 1, f"function-calling 循环疑似重复: {hits}"
+
+    def test_agent_chat已转调统一执行器(self):
+        """``/agent/chat`` 必须走统一执行器（并写账本）。"""
+        api = (APP_DIR / "api" / "v1" / "agent.py").read_text(encoding="utf-8")
+        assert "services.agent.service" not in api, "/agent/chat 仍在调用遗留服务"
+        assert "executor.execute_stream" in api, "/agent/chat 未转调统一执行器"
 
     def test_包体积_无无运行环境组件(self):
         """app/ 下不得残留需要独立运行环境的组件（如 queue_worker）。"""

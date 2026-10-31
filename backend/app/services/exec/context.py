@@ -12,6 +12,8 @@ token 估算用字符启发式（``len/4``），不引入 tiktoken 依赖；真�
 """
 from __future__ import annotations
 
+import logging
+
 from dataclasses import dataclass, field
 
 #: 模型窗口（字符/token 估算用）
@@ -27,8 +29,6 @@ MODEL_CONTEXT_WINDOWS: dict[str, int] = {
 DEFAULT_CONTEXT_WINDOW = 32_000
 
 #: 占用比例阈值
-COMPACT_THRESHOLD = 0.70
-SUMMARY_THRESHOLD = 0.85
 
 #: 压缩后保留的最近轮数（原文）
 KEEP_RECENT_TURNS = 3
@@ -84,12 +84,8 @@ class ContextBudget:
         }
 
 
-def should_compact(usage_ratio: float) -> bool:
-    return usage_ratio >= COMPACT_THRESHOLD
 
 
-def should_summarize(usage_ratio: float) -> bool:
-    return usage_ratio >= SUMMARY_THRESHOLD
 
 
 @dataclass
@@ -156,14 +152,6 @@ def trim_messages(
     return TrimResult(messages=result, dropped=dropped, reason="trimmed")
 
 
-def truncate_tool_result(content: str, budget_chars: int) -> str:
-    """工具结果的动态截断（保留头部与尾部，中间标注省略）。"""
-    if len(content) <= budget_chars:
-        return content
-    head = budget_chars // 3
-    tail = budget_chars // 3
-    omitted = len(content) - head - tail
-    return f"{content[:head]}\n\n... [已省略 {omitted} 字符，全文可回查] ...\n\n{content[-tail:]}"
 
 
 # --------------------------------------------------------------------------- #
@@ -180,6 +168,8 @@ NINE_SECTIONS = (
     "当前工作状态",
     "下一步",
 )
+
+logger = logging.getLogger(__name__)
 
 NINE_SECTION_TEMPLATE = """## 意图
 {意图}
@@ -232,6 +222,34 @@ class CompressionResult:
             "sections": self.sections,
             "summary": self.summary,
         }
+
+
+def summarize_with_llm(*, transcript: str, model: str | None = None) -> str:
+    """用 LLM 生成**真实的九段结构化摘要**。
+
+    **P2-03 / R-22**：此前九段摘要是**纯模板填充**——调用方只给 intent 与 current，
+    其余 7 段一律「（未记录）」；``exec/roles.py`` 的内置角色 Prompt
+    （``contextSummary`` / ``memorySelector`` / ``compact``）**从未送给 LLM**。
+
+    现在用 ``BUILTIN_ROLES["contextSummary"].prompt`` 真正调用 LLM。
+
+    :return: 九段摘要文本；**LLM 不可用时返回空串**，由调用方退回确定性模板
+             （摘要失败**不得阻断**主流程）。
+    """
+    if not transcript.strip():
+        return ""
+    try:
+        from app.core.config import settings
+        from app.core.llm import chat
+        from app.services.exec.team.roles import BUILTIN_ROLE_PROMPTS
+
+        role_prompt = BUILTIN_ROLE_PROMPTS.get("contextSummary", "")
+        prompt = role_prompt + "\n\n<对话记录>\n" + transcript[:12000]
+        text = chat(prompt, model=model or settings.plan_model)
+        return (text or "").strip()
+    except Exception as exc:  # noqa: BLE001 - 摘要失败不阻断主流程
+        logger.warning("LLM 摘要生成失败（退回确定性模板）: %s", exc)
+        return ""
 
 
 def build_nine_section_summary(

@@ -20,12 +20,33 @@ export interface ShellSettings {
   startMinimized: boolean
 }
 
+/** 后端状态机（与 `frontend/desktop/src/shared/types.ts` 对齐） */
+export type BackendState =
+  | 'idle'
+  | 'starting'
+  | 'ready'
+  | 'degraded'
+  | 'crashed'
+  | 'stopping'
+  | 'stopped'
+
+/** 后端状态快照（P4-14：渲染侧据此展示**降级态**） */
+export interface BackendStatus {
+  state: BackendState
+  port: number | null
+  pid: number | null
+  restarts: number
+  lastError: string | null
+}
+
 export interface AgentDesktopApi {
   status(): Promise<AgentDesktopData<unknown>>
   diagnostics(): Promise<AgentDesktopData<{ text: string }>>
 
   chooseDirectory(opts?: { title?: string }): Promise<AgentDesktopData<{ path: string | null }>>
   saveArtifact(req: { url: string; suggestedName?: string }): Promise<AgentDesktopData<{ path: string | null }>>
+  /** P4-14：订阅后端状态变化（渲染侧据此展示降级态） */
+  onBackendState(cb: (status: BackendStatus) => void): (() => void)
   revealPath(path: string): Promise<AgentDesktopData<Record<string, never>>>
   openExternal(url: string): Promise<AgentDesktopData<Record<string, never>>>
 

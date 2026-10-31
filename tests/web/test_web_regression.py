@@ -722,10 +722,21 @@ def test_web_33_compose_mode(page, backend):
     assert page.locator("textarea").count() > 0, "速记形态应保留输入框"
     # 对话流（历史区）在速记形态下不渲染
     assert page.locator(".ws-scroll").count() == 0, "速记形态不应渲染对话流"
-    # 侧栏（常驻 12 项入口）在速记形态下隐藏
-    assert page.locator(".side-nav").count() == 0, "速记形态不应渲染侧栏"
+    # 侧栏在速记形态下隐藏。
+    # 注意类名是 ``sidenav``（SideNav.vue 的根元素 <aside class="sidenav">）。
+    # 早前这里写的是 ``.side-nav``——那个类名根本不存在，断言恒真，
+    # 等于没测侧栏；普通形态下侧栏照常渲染也照样"通过"。
+    assert page.locator(".sidenav").count() == 0, "速记形态不应渲染侧栏"
     evidence = shot(page, "web-33-compose")
     suite.ok("WEB-33", "速记形态只渲染输入区（无侧栏/无对话流）", "UI", evidence)
+
+    # 反向对照：同一个选择器在普通形态下必须能命中。
+    # 没有这一步，选择器写错（比如类名从 side-nav 改成 sidenav）时
+    # 断言会**恒真**，用例就成了"永远通过"的假门禁。
+    page.goto(f"{backend.base_url}/workspace", wait_until="domcontentloaded")
+    page.wait_for_load_state("networkidle", timeout=20_000)
+    assert page.locator(".sidenav").count() > 0, "普通形态应渲染侧栏（选择器需能命中）"
+    assert page.locator(".ws-scroll").count() > 0, "普通形态应渲染对话流"
 
 
 def test_web_34_attachment_cap(page, backend):
