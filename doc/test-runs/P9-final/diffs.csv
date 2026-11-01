@@ -1,0 +1,12 @@
+feature_id,verdict,diff_desc,reason,impact,approved_by,owner,due,evidence
+F-SYSTEM-006,waived,浏览器访问（http://127.0.0.1:8080）与 Web API Key 鉴权能力删除,用户决策 Q1「不需要 Web 端任何内容」；桌面窗口与页面同源,CAPI Key（AGENT_API_KEY）不再下发；桌面态无需跨源访问,待人工批准,执行方,v1.1.0,raw/smoke-ts.log
+F-SYSTEM-011,waived,容器化部署（docker-compose / nginx / Dockerfile）整体退场,用户决策 Q1；交付物只剩一个安装包,不影响桌面用户；影响需要容器化部署的外部调用方,待人工批准,执行方,v1.1.0,deploy/README.md
+F-RAG-001,waived,旧 milvus.db 历史向量不迁移（Milvus Lite 专有格式不解析）,用户决策 Q4「保留功能、数据不保留」,用户需点「重新入库」重建向量（有 Embedding API 费用）；已在升级引导文案中告知,待人工批准,执行方,v1.1.0,raw/smoke-ts.log
+F-RAG-002,waived,PDF 表格结构识别退化（JS 侧无等价能力，退化为按行文本）,用户决策 Q5「pdf Skill 全部重写为 TS」；design §7.5,约 5% 的 PDF 表格内容需人工整理；文本覆盖率门槛 ≥90%,待人工批准,执行方,v1.1.0,contract/events.json
+F-CAP-009,waived,Python 代码执行需先探测/下载 Python 运行时（不再随包捆绑 670MB）,用户决策 Q3「默认少数内置，更多从网络下载」；design §7.6,Windows 用户首次使用需下载最小运行时（约 15MB）；macOS/Linux 通常自带 python3,待人工批准,执行方,v1.1.0,raw/vitest-server.log
+F-SYSTEM-030,equivalent,后端运行时由 Python 换成 Node（TS）：sidecar 启动方式从 spawn(python) 改为 utilityProcess.fork(entry),design §4.3 / §8.1；软件只剩一个运行时,用户不可感知；握手行格式 AGENT_DESKTOP_READY {json} 与探活/退避/熔断/孤儿回收五套机制均保持不变,—,—,—,raw/vitest-shell.log
+F-EVT-026,equivalent,loop_detected 事件由「后端发、前端忽略」改为「前端联合已覆盖」,design §2.9-⑥ / R12：后端原本就会发该事件，前端 AgentEvent 联合缺失导致落到 default 分支被忽略,正收益（不再丢事件）；非退化,—,—,—,contract/events.json
+F-CAP-007,equivalent,路径穿越防护由 Python Path.is_relative_to 改为 Node 前缀判定（resolve 后前缀比对）,design §6.3.1；语义等价,用户不可感知；两者都拦截 ../ 越界读取,—,—,—,tests/contract.test.ts
+F-AGENT-002,equivalent,上下文事件变量由 Python contextvars 改为 Node AsyncLocalStorage,design §3.2 T-1：清掉 contextvars.copy_context() + asyncio.to_thread + 队列回传的 hack,用户不可感知；6 项副作用登记全部保留,—,—,—,domain/agent/loop.ts
+F-AGENT-007,equivalent,Agent 事件循环指纹检测改为基于 SHA-256 的稳定指纹,design §6.3.3；循环指纹防死锁语义保留,用户不可感知,—,—,—,domain/agent/loop.ts
+F-RAG-003,equivalent,向量层由 Milvus Lite（82MB + onnxruntime 75MB）改为自研 SQLite BLOB + 内存 BM25,design §7.1；Q4 允许自由重写向量层,检索质量门槛：Top-10 集合重合率 ≥0.9（本机无 Embedding Key 未实测，登记为待补）,—,—,—,domain/rag/store.ts

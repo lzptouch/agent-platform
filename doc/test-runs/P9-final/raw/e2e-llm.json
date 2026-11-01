@@ -1,0 +1,98 @@
+[
+  {
+    "name": "工作台渲染（输入框可见）",
+    "ok": true,
+    "detail": "http://127.0.0.1:50148/workspace"
+  },
+  {
+    "name": "大模型问答返回正确内容",
+    "ok": true,
+    "detail": "耗时 0.6s，包含「北京」=true"
+  },
+  {
+    "name": "多轮上下文（能记住上一轮）",
+    "ok": true
+  },
+  {
+    "name": "新建任务按钮可用",
+    "ok": true
+  },
+  {
+    "name": "命令/技能面板可打开",
+    "ok": true
+  },
+  {
+    "name": "任务模式菜单可打开",
+    "ok": true
+  },
+  {
+    "name": "RAG 入库 + 检索（Embedding 链路）",
+    "ok": true,
+    "detail": "ingest=200 retrieval=200 命中 1 条"
+  },
+  {
+    "name": "页面 /admin/capabilities",
+    "ok": true,
+    "detail": "内容 223 字符"
+  },
+  {
+    "name": "页面 /admin/capabilities?tab=skills",
+    "ok": true,
+    "detail": "内容 2366 字符"
+  },
+  {
+    "name": "页面 /admin/knowledge",
+    "ok": true,
+    "detail": "内容 355 字符"
+  },
+  {
+    "name": "页面 /admin/research",
+    "ok": true,
+    "detail": "内容 310 字符"
+  },
+  {
+    "name": "页面 /admin/web",
+    "ok": true,
+    "detail": "内容 300 字符"
+  },
+  {
+    "name": "页面 /admin/schedules",
+    "ok": true,
+    "detail": "内容 230 字符"
+  },
+  {
+    "name": "页面 /admin/status",
+    "ok": true,
+    "detail": "内容 703 字符"
+  },
+  {
+    "name": "页面 /admin/artifacts",
+    "ok": true,
+    "detail": "内容 227 字符"
+  },
+  {
+    "name": "页面 /admin/roles",
+    "ok": true,
+    "detail": "内容 247 字符"
+  },
+  {
+    "name": "页面 /admin/plugins",
+    "ok": true,
+    "detail": "内容 255 字符"
+  },
+  {
+    "name": "页面 /admin/settings",
+    "ok": true,
+    "detail": "内容 798 字符"
+  },
+  {
+    "name": "页面 /admin/desktop",
+    "ok": true,
+    "detail": "内容 1247 字符"
+  },
+  {
+    "name": "页面 /spaces",
+    "ok": true,
+    "detail": "内容 375 字符"
+  }
+]

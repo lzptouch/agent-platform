@@ -18,8 +18,8 @@ from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
-# **E9**：此前硬编码 8000，而 backend/.env 是 18040 → 按现状运行必然全部失败。
-# 改为读环境变量（与 backend/scripts/ui_smoke_test.py 的 AP_UI_BASE_URL 一致）。
+# **E9**：此前硬编码 8000，与实际端口不一致 → 按现状运行必然全部失败。
+# 改为读环境变量 `AGENT_BASE_URL`（与 TS 后端 `AGENT_PORT` 一致）。
 BASE = os.getenv("AP_UI_BASE_URL", "http://127.0.0.1:18040")
 SHOT_DIR = Path(__file__).resolve().parent.parent / "doc" / "workbuddy" / "screenshots"
 SHOT_DIR.mkdir(parents=True, exist_ok=True)

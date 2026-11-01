@@ -4,9 +4,11 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
+# E2E 独立 venv（旧 Python 后端退场后，E2E 不再依赖 backend/requirements-dev.txt）
+.venv-e2e/
 
-# 密钥与环境变量（切勿入库）
-.env
+# 密钥与环境变量
+# 注：`.env` 已按要求纳入版本控制（团队联调需要），故不再忽略。
 *.pem
 *.key
 *.p12
@@ -17,20 +19,20 @@ dist/
 # **注意**：gitignore **不支持行尾注释**——注释必须独占一行，
 # 否则整行（含注释文字）都会被当作模式，规则永不生效。
 /build/
-frontend/desktop/release/
+apps/desktop/release/
 # electron-builder 产物（安装包），不得入库
-frontend/desktop/dist-main/
+apps/desktop/dist-main/
 # 壳编译产物
-frontend/desktop/dist-preload/
+apps/desktop/dist-preload/
 # 壳 preload 编译产物
-frontend/desktop/.stage/
+apps/desktop/.stage/
 # portable Python 运行时暂存
 *.log
 outputs/
 .tmp/
 .pytest_tmp/
-# pytest --basetemp 隔离目录（根与 backend/ 两处都会被命中）
-backend/.pytest_tmp/
+# pytest --basetemp 隔离目录
+.pytest_tmp/
 # 分层测试的 SQLite 层库（.db / -wal / -shm）
 tests/.layer_dbs/
 tests/report/
@@ -39,7 +41,8 @@ tests/.work/
 # 端到端测试临时数据
 
 # 运行时数据（SQLite 数据库 / 向量库 / 产物 / 上传 / 自定义 Skill）
-backend/data/
+apps/server/dist/
+
 
 # 浏览器测试截图产物（体积大，按需保留在本地）
 doc/workbuddy/screenshots/
@@ -50,3 +53,12 @@ doc/workbuddy/screenshots/
 *.bin
 *.safetensors
 *.gguf
+
+# TS 后端开发态数据目录（apps/server/data）
+data/
+apps/server/data/
+
+# 双 ABI 原生模块产物（scripts/rebuild-native.mjs 生成）
+apps/server/.native/
+# 打包暂存目录（scripts/build-desktop.mjs 的 stageServer 生成）
+apps/server/.pack/

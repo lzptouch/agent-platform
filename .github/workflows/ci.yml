@@ -1,16 +1,23 @@
 name: CI
 
-# P5-04 · 7 层 CI 流水线（对应 `doc/testing/00` §11.1 的 L0~L5 + 每日 cron）
+# 7 层 CI 流水线（单运行时版 · design/16 §12.8 · P8-04）
 #
 # 分层策略：
-#   L0 契约（3min）   · 文档数字门禁 + 需求追溯 + OpenAPI 契约   → 阻断合并
-#   L1 后端回归（5min）· pytest 全量 + 分层子集                  → 阻断合并
-#   L2 Web e2e（12min）· Playwright Web 功能矩阵                → 阻断合并
-#   L3 桌面 e2e（15min）· Playwright 桌面壳                     → 阻断合并
-#   L4 打包（40min）  · electron-builder + 打包态自检           → 阻断**阶段出口**
-#   L5 发布（60min）  · 签名与产物校验                          → 阻断发布
-#   每日全量          · 全层 + 视觉基线 + 覆盖率                → 仅告警
-
+#   L0 契约门禁（8min）  · 文档数字 + 需求追溯 + **四道契约闸门** + **功能基线覆盖** → 阻断合并
+#   L1 后端单测（8min）  · TS 后端 vitest（65 例）                                → 阻断合并
+#   L2 集成测试（12min） · vitest 集成 + 冒烟 37 端点                            → 阻断合并
+#   L3 桌面 e2e（20min） · Playwright + Electron（desktop/packaged/visual）       → 阻断合并
+#   L4 打包（45min）    · electron-builder + 打包态自检                           → 阻断**阶段出口**
+#   L5 发布（60min）    · 签名与产物校验                                          → 阻断发布
+#   每日全量            · 全层 + 视觉基线 + 覆盖率                                → 仅告警
+#
+# **改造要点（design/16 §9.1 / §12.8 / §11.10）**：
+# - ❌ 删除 L2 `web-e2e`（44 例，浏览器形态不存在）；
+# - ✅ 新增 L0 **闸门 4：功能基线覆盖**（D1 固化到 CI）；
+# - ✅ L1 主力从 pytest 换成 vitest（TS 后端）—— **旧 Python 后端已退场**
+#    （P8-04 删除 `backend/`），故 L1 不再有「旧 Python 回归」步骤；
+# - ✅ L3 的 Playwright E2E 用**独立 venv**（仅 pytest + playwright），
+#    不再依赖 `backend/requirements-dev.txt`。
 on:
   pull_request:
   push:
@@ -19,7 +26,6 @@ on:
     - cron: "0 3 * * *"
 
 env:
-  PYTHON_VERSION: "3.11"
   NODE_VERSION: "22"
 
 jobs:
@@ -27,81 +33,158 @@ jobs:
   contract:
     name: L0 契约门禁
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: { python-version: "${{ env.PYTHON_VERSION }}" }
       - uses: actions/setup-node@v4
         with: { node-version: "${{ env.NODE_VERSION }}" }
-      - name: 安装后端依赖
-        run: python -m pip install -r backend/requirements.txt
+      - name: 安装 TS 后端依赖
+        working-directory: apps/server
+        run: npm ci --no-audit --no-fund
       - name: 文档一致性门禁
-        run: python scripts/check_doc_consistency.py
-      - name: 文档数字门禁（P5-05）
-        run: python scripts/check_doc_numbers.py
-      - name: 需求追溯门禁（P5-06）
-        run: python scripts/check_traceability.py
-      - name: OpenAPI 端点契约
+        run: python3 scripts/check_doc_consistency.py
+      - name: 文档数字门禁
+        run: python3 scripts/check_doc_numbers.py
+      - name: 需求追溯门禁
+        run: python3 scripts/check_traceability.py
+      - name: 文档路径门禁（不得引用已删除的实现路径）
+        run: python3 scripts/check_doc_paths.py
+
+      # ---- 闸门 1/2/3：契约零差异 ----
+      - name: 闸门 1 · OpenAPI 零差异（98 路径 / 126 操作）
+        working-directory: apps/server
+        run: npx vitest run tests/contract.test.ts
+      - name: 闸门 2 · 事件零差异（26 事件 + 4 SSE）
+        working-directory: apps/server
+        run: npx vitest run tests/domain.test.ts
+      - name: 闸门 3 · Schema 零差异（22 表 DDL）
+        working-directory: apps/server
+        run: npx vitest run tests/db.test.ts
+      - name: 闸门 3b · 打包态回归（入口判定 / 服务根 / 双 ABI）
+        working-directory: apps/server
+        run: npx vitest run tests/packaging.test.ts
+      - name: 闸门 3c · 响应**形状**零差异（数组型端点 + 桌面态字段）
+        working-directory: apps/server
+        run: npx vitest run tests/response-shape.test.ts
+      - name: 闸门 3d · 与改造前（Python）响应键逐端点一致
         run: |
-          cd backend
-          python -c "
-          from app.main import app
-          spec = app.openapi()
-          paths = spec['paths']
-          print(f'端点数: {len(paths)}')
-          assert len(paths) > 50, '端点数异常'
-          "
+          node scripts/dump_response_keys.mjs /tmp/ts-keys.json
+          python3 scripts/check_python_parity.py
+
+      # ---- 闸门 4：功能基线覆盖（D1 固化到 CI）----
+      - name: 闸门 4 · 功能基线不许缩水
+        run: |
+          python3 - <<'PY'
+          import csv, io, sys
+          rows = list(csv.DictReader(io.open('baseline/features.csv', encoding='utf-8')))
+          n = len(rows)
+          print(f'features.csv 行数: {n}')
+          if n < 180:
+              print(f'功能基线缩水：{n} < 180（design §12.8 闸门 4）')
+              sys.exit(1)
+          missing = [r['id'] for r in rows if not r.get('baseline_result')]
+          if missing:
+              print(f'以下功能项缺 baseline_result: {missing[:10]}')
+              sys.exit(1)
+          PY
+      - name: 闸门 4 · 差异台账中 defect 必须为 0
+        if: exists('doc/test-runs/P9-final/diffs.csv')
+        run: |
+          python3 - <<'PY'
+          import csv, io, sys
+          rows = list(csv.DictReader(io.open('doc/test-runs/P9-final/diffs.csv', encoding='utf-8')))
+          defects = [r for r in rows if r.get('verdict') == 'defect']
+          waived = [r for r in rows if r.get('verdict') == 'waived']
+          for r in waived:
+              for f in ('reason', 'impact', 'approved_by', 'owner', 'due'):
+                  if not r.get(f):
+                      print(f"waived 行缺字段 {f}: {r.get('feature_id')}")
+                      sys.exit(1)
+          print(f'defect={len(defects)} waived={len(waived)}')
+          if defects:
+              print(f'存在 {len(defects)} 个 defect —— 不得交付')
+              sys.exit(1)
+          PY
 
   # ------------------------------------------------------------------ L1
   backend:
-    name: L1 后端回归
+    name: L1 后端单测
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: { python-version: "${{ env.PYTHON_VERSION }}" }
-      - name: 安装后端依赖（含测试依赖）
-        run: python -m pip install -r backend/requirements-dev.txt
-      - name: 快速子集（unit）
-        working-directory: backend
-        run: python -m pytest tests -q -m unit
-      - name: 全量后端
-        working-directory: backend
-        run: python -m pytest tests -q
+      - uses: actions/setup-node@v4
+        with: { node-version: "${{ env.NODE_VERSION }}" }
+      - name: 安装依赖
+        run: cd apps/server && npm ci --no-audit --no-fund && cd ../..
+      - name: TS 后端全量（vitest）
+        working-directory: apps/server
+        run: npm run test
 
   # ------------------------------------------------------------------ L2
-  web-e2e:
-    name: L2 Web 端到端
+  integration:
+    name: L2 集成测试
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: { python-version: "${{ env.PYTHON_VERSION }}" }
       - uses: actions/setup-node@v4
         with: { node-version: "${{ env.NODE_VERSION }}" }
       - name: 安装依赖
         run: |
-          python -m venv backend/.venv
-          backend/.venv/bin/python -m pip install --upgrade pip
-          backend/.venv/bin/python -m pip install -r backend/requirements-dev.txt
-          backend/.venv/bin/python -m playwright install --with-deps chromium
-          cd frontend/web/vue-element-plus && npm ci && npm run build && cd ../../..
-      - name: 构建前端产物
-        run: node frontend/scripts/build-frontend.mjs
-      - name: Web e2e
-        working-directory: tests
-        run: ../backend/.venv/bin/python -m pytest web -q
-      - name: 上传结果工件
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: web-e2e-report
-          path: |
-            tests/report/**
-          retention-days: 14
+          cd apps/server && npm ci --no-audit --no-fund && cd ../..
+          cd apps/ui && npm ci --no-audit --no-fund && cd ../..
+          cd apps/desktop && npm ci --no-audit --no-fund && cd ../..
+      - name: 构建 TS 后端
+        working-directory: apps/server
+        run: npm run build
+      - name: 前端单测
+        working-directory: apps/ui
+        run: npm run test
+      - name: 桌面壳单测
+        working-directory: apps/desktop
+        run: npm ci --no-audit --no-fund && npm run test
+      - name: 冒烟（35 端点 / 37 断言）
+        working-directory: apps/server
+        run: |
+          AGENT_DATA_DIR=/tmp/agent-ci \
+            AGENT_DESKTOP=1 \
+            AGENT_DESKTOP_TOKEN=ci-token \
+            AGENT_DESKTOP_BOOTSTRAP_NONCE=ci-nonce \
+            node dist/main.js > /tmp/agent-ci.log 2>&1 &
+          for i in $(seq 1 30); do
+            grep -q AGENT_DESKTOP_READY /tmp/agent-ci.log && break
+            sleep 1
+          done
+          PORT=$(grep -o '"port":[0-9]*' /tmp/agent-ci.log | head -1 | cut -d: -f2)
+          AGENT_DESKTOP_TOKEN=ci-token node ../../scripts/ui/smoke.mjs "http://127.0.0.1:$PORT"
+
+  # ------------------------------------------------------------------ L3
+  llm-e2e:
+    name: L3 大模型端到端（Playwright 驱动真实应用）
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "${{ env.NODE_VERSION }}" }
+      - name: 安装依赖
+        run: |
+          cd apps/ui && npm ci --no-audit --no-fund && npm run build && cd ../..
+          cd apps/desktop && npm ci --no-audit --no-fund && npm run build && cd ../..
+          cd apps/server && npm ci --no-audit --no-fund && npm run build && cd ../..
+          cd tests/e2e && npm ci --no-audit --no-fund && npx playwright install --with-deps chromium && cd ../..
+      - name: 生成双 ABI 原生模块
+        run: node scripts/rebuild-native.mjs
+      - name: 打包
+        run: node scripts/build-desktop.mjs --platform linux --arch x64 --skip-self-check
+      - name: LLM 端到端（需 DASHSCOPE_API_KEY）
+        if: env.DASHSCOPE_API_KEY != ''
+        working-directory: tests/e2e
+        env:
+          DASHSCOPE_API_KEY: ${{ secrets.DASHSCOPE_API_KEY }}
+          DASHSCOPE_BASE_URL: ${{ secrets.DASHSCOPE_BASE_URL }}
+        run: node llm-e2e.mjs
 
   # ------------------------------------------------------------------ L3
   desktop-e2e:
@@ -110,52 +193,49 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: { python-version: "${{ env.PYTHON_VERSION }}" }
       - uses: actions/setup-node@v4
         with: { node-version: "${{ env.NODE_VERSION }}" }
       - name: 安装依赖
         run: |
-          python -m venv backend/.venv
-          backend/.venv/bin/python -m pip install --upgrade pip
-          backend/.venv/bin/python -m pip install -r backend/requirements-dev.txt
-          backend/.venv/bin/python -m playwright install --with-deps chromium
-          cd frontend/web/vue-element-plus && npm ci && npm run build && cd ../../..
-          cd frontend/desktop && npm ci && npm run build && cd ../..
-      - name: 构建前端产物
-        run: node frontend/scripts/build-frontend.mjs
+          python3 -m venv .venv-e2e
+          .venv-e2e/bin/python -m pip install --upgrade pip
+          .venv-e2e/bin/python -m pip install pytest playwright pytest-timeout
+          .venv-e2e/bin/python -m playwright install --with-deps chromium
+          cd apps/ui && npm ci --no-audit --no-fund && npm run build && cd ../..
+          cd apps/desktop && npm ci --no-audit --no-fund && npm run build && cd ../..
+          cd apps/server && npm ci --no-audit --no-fund && npm run build && cd ../..
       - name: 桌面 e2e
         working-directory: tests
-        run: ../backend/.venv/bin/python -m pytest desktop -q
+        run: ../.venv-e2e/bin/python -m pytest desktop -q
 
   # ------------------------------------------------------------------ L4
   package:
     name: L4 打包
     runs-on: ubuntu-latest
     timeout-minutes: 50
-    needs: [contract, backend, web-e2e, desktop-e2e]
+    needs: [contract, backend, integration, desktop-e2e]
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: { python-version: "${{ env.PYTHON_VERSION }}" }
       - uses: actions/setup-node@v4
         with: { node-version: "${{ env.NODE_VERSION }}" }
       - name: 安装依赖
         run: |
-          python -m venv backend/.venv
-          backend/.venv/bin/python -m pip install --upgrade pip
-          backend/.venv/bin/python -m pip install -r backend/requirements-dev.txt
-          cd frontend/web/vue-element-plus && npm ci && npm run build && cd ../../..
-          cd frontend/desktop && npm ci && cd ../..
-      - name: 构建前端产物
-        run: node frontend/scripts/build-frontend.mjs
+          cd apps/ui && npm ci --no-audit --no-fund && cd ../..
+          cd apps/desktop && npm ci --no-audit --no-fund && cd ../..
+          cd apps/server && npm ci --no-audit --no-fund && cd ../..
+      - name: 生成双 ABI 原生模块（Node + Electron）
+        run: node scripts/rebuild-native.mjs
       - name: 打包桌面应用
         run: node scripts/build-desktop.mjs --platform linux --arch x64
-      - name: 打包态自检（9 项）
-        run: backend/.venv/bin/python scripts/verify_desktop_package.py
+      - name: 打包态自检
+        run: node scripts/verify-desktop-package.mjs
       - name: 打包态 e2e
         working-directory: tests
-        run: ../backend/.venv/bin/python -m pytest packaged -q
+        run: |
+          python3 -m venv ../.venv-e2e
+          ../.venv-e2e/bin/python -m pip install --upgrade pip
+          ../.venv-e2e/bin/python -m pip install pytest playwright pytest-timeout
+          ../.venv-e2e/bin/python -m pytest packaged -q
 
   # ------------------------------------------------------------------ L5
   release:
@@ -166,29 +246,23 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: { python-version: "${{ env.PYTHON_VERSION }}" }
       - uses: actions/setup-node@v4
         with: { node-version: "${{ env.NODE_VERSION }}" }
       - name: 安装依赖
         run: |
-          python -m venv backend/.venv
-          backend/.venv/bin/python -m pip install --upgrade pip
-          backend/.venv/bin/python -m pip install -r backend/requirements-dev.txt
-          cd frontend/web/vue-element-plus && npm ci && npm run build && cd ../../..
-          cd frontend/desktop && npm ci && cd ../..
+          cd apps/ui && npm ci --no-audit --no-fund && cd ../..
+          cd apps/desktop && npm ci --no-audit --no-fund && cd ../..
+          cd apps/server && npm ci --no-audit --no-fund && cd ../..
       - name: 构建并校验产物
         run: |
-          node frontend/scripts/build-frontend.mjs
+          node scripts/ui/build-frontend.mjs
+          node scripts/rebuild-native.mjs
           node scripts/build-desktop.mjs --platform linux --arch x64
-      - name: 体积预算校验
-        run: |
-          backend/.venv/bin/python scripts/check_doc_numbers.py --artifact-only
       - name: 上传产物
         uses: actions/upload-artifact@v4
         with:
           name: desktop-package
-          path: frontend/desktop/release/**
+          path: apps/desktop/release/**
           retention-days: 30
 
   # ------------------------------------------------------------------ 每日全量
@@ -199,21 +273,19 @@ jobs:
     if: github.event_name == 'schedule'
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: { python-version: "${{ env.PYTHON_VERSION }}" }
       - uses: actions/setup-node@v4
         with: { node-version: "${{ env.NODE_VERSION }}" }
       - name: 安装依赖
         run: |
-          python -m venv backend/.venv
-          backend/.venv/bin/python -m pip install --upgrade pip
-          backend/.venv/bin/python -m pip install -r backend/requirements-dev.txt
-          backend/.venv/bin/python -m playwright install --with-deps chromium
-          cd frontend/web/vue-element-plus && npm ci && npm run build && cd ../../..
-      - name: 构建前端产物
-        run: node frontend/scripts/build-frontend.mjs
-      - name: 汇总全量结果（P5-01）
-        run: backend/.venv/bin/python scripts/collect_test_report.py
+          python3 -m venv .venv-e2e
+          .venv-e2e/bin/python -m pip install --upgrade pip
+          .venv-e2e/bin/python -m pip install pytest playwright pytest-timeout
+          .venv-e2e/bin/python -m playwright install --with-deps chromium
+          cd apps/ui && npm ci --no-audit --no-fund && npm run build && cd ../..
+          cd apps/desktop && npm ci --no-audit --no-fund && npm run build && cd ../..
+          cd apps/server && npm ci --no-audit --no-fund && npm run build && cd ../..
+      - name: 汇总全量结果
+        run: python3 scripts/collect_test_report.py
       - name: 上传工件
         if: always()
         uses: actions/upload-artifact@v4

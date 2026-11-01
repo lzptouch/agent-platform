@@ -11,7 +11,7 @@
 - 不以"窗口看起来正常"为准。
 
 运行：
-    backend/.venv/bin/python -m pytest tests/packaged -q
+    .venv-e2e/bin/python -m pytest tests/packaged -q
 """
 from __future__ import annotations
 
@@ -313,9 +313,9 @@ def test_pak_03_frontend_latest(resources: Path):
     packaged = resources / "frontend" / "index.html"
     assert packaged.exists(), f"未找到随包前端产物：{packaged}"
     source = REPO_ROOT / "frontend" / "dist" / "index.html"
-    assert source.exists(), f"缺少构建源产物：{source}（先跑 node frontend/scripts/build-frontend.mjs）"
+    assert source.exists(), f"缺少构建源产物：{source}（先跑 node scripts/ui/build-frontend.mjs）"
     assert _sha256(packaged) == _sha256(source), (
-        "随包前端产物与 frontend/dist 不一致 —— 打包的是旧 dist（历史事故：dist 停在旧日期，"
+        "随包前端产物与 apps/ui/dist 不一致 —— 打包的是旧 dist（历史事故：dist 停在旧日期，"
         "e2e 在过期界面上跑，失败全是幻觉）"
     )
 

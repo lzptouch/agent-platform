@@ -33,35 +33,68 @@ def _authoritative() -> dict[str, int]:
     """取权威数字。"""
     out: dict[str, int] = {}
 
-    # 1) 端点数（OpenAPI）
-    try:
-        sys.path.insert(0, str(REPO_ROOT / "backend"))
-        from app.main import app  # noqa: PLC0415
-
-        out["端点"] = len(app.openapi().get("paths", {}))
-    except Exception as exc:  # noqa: BLE001
-        print(f"[check] OpenAPI 不可用（跳过端点校验）: {exc}")
-
-    # 2) ORM 表数
-    try:
-        from app.db.models import Base  # noqa: PLC0415
-
-        out["表"] = len(Base.metadata.tables)
-    except Exception as exc:  # noqa: BLE001
-        print(f"[check] ORM 元数据不可用（跳过表数校验）: {exc}")
-
-    # 3) 后端用例数（取最近 report.json，无则现场收集）
-    runs = sorted((REPO_ROOT / "tests" / "report" / "runs").glob("*/report.json"))
-    if runs:
+    # 1) 端点数（OpenAPI）—— **读冻结契约**（`contract/openapi.json`）
+    #
+    # **改造要点（design/16 §11.10 · P8-04）**：旧 Python 后端退场后，
+    # 不能再从 `app.main` 取端点数 → 改为读**契约冻结产物**（更稳定：
+    # 契约本就是「被测对象必须等于的基准」，就该是真相源）。
+    spec_path = REPO_ROOT / "contract" / "openapi.json"
+    if spec_path.exists():
         try:
-            data = json.loads(runs[-1].read_text(encoding="utf-8"))
-            backend = next(
-                (l for l in data.get("layers", []) if l.get("id") == "pytest-backend"), None,
-            )
-            if backend:
-                out["pytest"] = int(backend.get("total") or 0)
+            spec = json.loads(spec_path.read_text(encoding="utf-8"))
+            out["端点"] = len(spec.get("paths", {}))
+        except Exception as exc:  # noqa: BLE001
+            print(f"[check] 契约读取失败（跳过端点校验）: {exc}")
+    else:
+        print("[check] contract/openapi.json 不存在（跳过端点校验）")
+
+    # 2) 表数 —— **读冻结 DDL**（`contract/tables.sql`）
+    tables_path = REPO_ROOT / "contract" / "tables.sql"
+    if tables_path.exists():
+        try:
+            text = tables_path.read_text(encoding="utf-8")
+            out["表"] = len(re.findall(r"(?im)^\s*CREATE TABLE\s+", text))
+        except Exception as exc:  # noqa: BLE001
+            print(f"[check] 表 DDL 读取失败（跳过表数校验）: {exc}")
+    else:
+        print("[check] contract/tables.sql 不存在（跳过表数校验）")
+
+    # 3) 后端用例数（**实测报告优先** → 消除「第二真相源」，R17）
+    #
+    # 3.1) 首选 `doc/test-runs/<阶段>/raw/pytest-report.json`（本次改造每次测试都会产出）
+    pytest_reports = sorted(
+        (REPO_ROOT / "doc" / "test-runs").glob("*/raw/pytest-report.json"),
+        key=lambda p: p.stat().st_mtime,
+    )
+    for report in reversed(pytest_reports):
+        try:
+            data = json.loads(report.read_text(encoding="utf-8"))
+            summary = data.get("summary") or {}
+            passed = int(summary.get("passed") or 0)
+            if passed:
+                out["pytest"] = passed
+                break
         except Exception:  # noqa: BLE001
-            pass
+            continue
+    # 3.2) 回落：旧的采集报告（`tests/report/runs/*/report.json`）
+    if "pytest" not in out:
+        runs = sorted((REPO_ROOT / "tests" / "report" / "runs").glob("*/report.json"))
+        if runs:
+            try:
+                data = json.loads(runs[-1].read_text(encoding="utf-8"))
+                backend = next(
+                    (
+                    l
+                    for l in data.get("layers", [])
+                    # 层 id 历史演进：pytest-backend（Python）→ server-unit（TS）
+                    if l.get("id") in ("pytest-backend", "server-unit")
+                ),
+                None,
+                )
+                if backend:
+                    out["pytest"] = int(backend.get("total") or 0)
+            except Exception:  # noqa: BLE001
+                pass
 
     # 4) 需求条数
     spec = DOC_DIR / "design" / "01-功能需求规格.md"
@@ -91,9 +124,16 @@ _EXCLUDE_TOKENS = (
 
 
 #: **历史台账**文档——记录的是各阶段的**当时数字**，不与当前口径比对
+#:
+#: **改造要点（design/16 §12.9）**：审计报告与其整改计划记录的也是**审计当时**
+#: 的实测数字（626 / 668），同样属历史快照 → 一并纳入。
 HISTORY_DOCS = {
     "08-实现交付记录.md",
     "12-阶段交付台账.md",
+    "18_全面代码审计报告.md",
+    "19_二次全面审计报告.md",
+    "07-全面代码审计整改计划.md",
+    "08-二次全面审计整改计划.md",
 }
 
 

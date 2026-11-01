@@ -3,8 +3,12 @@
 实现下沉到 ``tests/common/report.py`` 与 ``tests/common/classify.py``（可被 CI 直接 import）。
 
 用法：
-    backend/.venv/bin/python scripts/collect_test_report.py
-    backend/.venv/bin/python scripts/collect_test_report.py --layer web
+    python3 scripts/collect_test_report.py
+    python3 scripts/collect_test_report.py --layer desktop
+
+**改造要点（design/16 §11.10 · P8-04）**：旧 Python 后端退场 →
+``pytest-backend`` 层改为 **TS 后端 vitest**；E2E 层改用**独立 venv**
+（``.venv-e2e/``，仅 pytest + playwright）。
 
 产物：``tests/report/runs/<runId>-<commit>-<platform>-<arch>/``
 """
@@ -33,41 +37,48 @@ from common.report import (  # noqa: E402
 RUNS_ROOT = REPO_ROOT / "tests" / "report" / "runs"
 
 #: 层定义（对应 ``doc/testing/00`` §11.1 的 L0~L5）
+#:
+#: **改造要点（design/16 §11.10 · P8-04）**：旧 Python 后端（`backend/`）退场：
+#: - ``pytest-backend`` → ``server-unit``（**TS 后端 vitest**）
+#: - ``web-e2e`` → **删除**（Web 形态不存在）
+#: - ``native-layer`` → **删除**（测的是 Python 执行器内部；等价能力已进
+#:   `apps/server/tests/domain.test.ts` 的沙箱用例）
+#: - ``deploy-layer`` → **删除**（Docker 形态不存在）
+#: - E2E 层统一用**独立 venv**（``.venv-e2e/``），不依赖 `backend/requirements-dev.txt`
+E2E_PY = str(
+    REPO_ROOT
+    / (".venv-e2e/bin/python" if os.name != "nt" else ".venv-e2e/Scripts/python.exe")
+)
+
 LAYERS: list[dict] = [
     {
-        "id": "pytest-backend", "title": "后端契约与单元", "runtime": "backend",
-        "command": [str(REPO_ROOT / "backend/.venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")), "-m", "pytest", "tests", "-q"],
-        "cwd": "backend",
+        "id": "server-unit", "title": "TS 后端契约与单元", "runtime": "node",
+        "command": ["npx", "vitest", "run", "--reporter=verbose"],
+        "cwd": "apps/server",
     },
     {
-        "id": "web-e2e", "title": "Web 端到端", "runtime": "web",
-        "command": [str(REPO_ROOT / "backend/.venv/bin/python"), "-m", "pytest", "tests/web", "-q"],
-        "cwd": ".",
+        "id": "ui-unit", "title": "前端单测", "runtime": "node",
+        "command": ["npx", "vitest", "run", "--reporter=verbose"],
+        "cwd": "apps/ui",
+    },
+    {
+        "id": "shell-unit", "title": "桌面壳单测", "runtime": "node",
+        "command": ["npx", "vitest", "run", "--reporter=verbose"],
+        "cwd": "apps/desktop",
     },
     {
         "id": "desktop-e2e", "title": "桌面端到端", "runtime": "desktop",
-        "command": [str(REPO_ROOT / "backend/.venv/bin/python"), "-m", "pytest", "tests/desktop", "-q"],
+        "command": [E2E_PY, "-m", "pytest", "tests/desktop", "-q"],
         "cwd": ".",
     },
     {
         "id": "packaged-e2e", "title": "打包态端到端", "runtime": "packaged",
-        "command": [str(REPO_ROOT / "backend/.venv/bin/python"), "-m", "pytest", "tests/packaged", "-q"],
-        "cwd": ".",
-    },
-    # P5-07/08/09：原生层 / 部署层 / 视觉基线
-    {
-        "id": "native-layer", "title": "原生层端到端", "runtime": "native",
-        "command": [str(REPO_ROOT / "backend/.venv/bin/python"), "-m", "pytest", "tests/native", "-q"],
+        "command": [E2E_PY, "-m", "pytest", "tests/packaged", "-q"],
         "cwd": ".",
     },
     {
-        "id": "deploy-layer", "title": "部署层端到端", "runtime": "deploy",
-        "command": [str(REPO_ROOT / "backend/.venv/bin/python"), "-m", "pytest", "tests/deploy", "-q"],
-        "cwd": ".",
-    },
-    {
-        "id": "visual-baseline", "title": "视觉基线", "runtime": "visual",
-        "command": [str(REPO_ROOT / "backend/.venv/bin/python"), "-m", "pytest", "tests/visual", "-q"],
+        "id": "visual-layer", "title": "视觉基线", "runtime": "visual",
+        "command": [E2E_PY, "-m", "pytest", "tests/visual", "-q"],
         "cwd": ".",
     },
 ]
@@ -144,11 +155,17 @@ def _first_failure_line(out: str, case_id: str) -> str:
 
 
 def _suspect_of(runtime: str) -> str:
+    """失败可疑层（与 `tests/common/classify.py` 的归类口径对齐）。
+
+    **改造要点（design/16 §11.10 · P8-04）**：`backend` → `server`
+    （TS 后端）；`web` 层已删除。
+    """
     return {
-        "backend": "backend",
-        "web": "frontend",
+        "node": "server",
+        "server": "server",
         "desktop": "shell",
         "packaged": "packaging",
+        "visual": "frontend",
     }.get(runtime, "unknown")
 
 

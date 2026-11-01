@@ -23,6 +23,8 @@ from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+#: **旧 Python 后端已退场**（design/16 §11.10 · P8-04）→ 无 `backend/` 目录。
+#: 保留常量仅为避免历史脚本 import 失败。
 BACKEND_DIR = REPO_ROOT / "backend"
 REPORT_DIR = REPO_ROOT / "tests" / "report"
 WORK_DIR = REPO_ROOT / "tests" / ".work"
@@ -37,10 +39,10 @@ def ensure_frontend_built(force: bool = False) -> str:
     """保证后端托管的前端产物是最新的；陈旧则重建。
 
     Why 需要这一步：
-      e2e 走的是**后端托管的** ``frontend/dist``（见 backend/app/core/config.py
+      e2e 走的是**后端托管的** ``apps/ui/dist``（见 apps/server/src/shared/config.ts
       的 ``frontend_dist_dir``），而 vite 的构建输出在
-      ``frontend/web/vue-element-plus/dist``——两者不是同一个目录，
-      必须经 ``frontend/scripts/build-frontend.mjs`` 拷贝才会同步。
+      ``apps/ui/dist``——两者不是同一个目录，
+      必须经 ``scripts/ui/build-frontend.mjs`` 拷贝才会同步。
 
       少了这一步，e2e 会在**几天前的旧 bundle** 上跑，测出来的失败全是幻觉：
       实测踩过——dist 停在 10-25，而源码早已改过，
@@ -197,9 +199,9 @@ class Suite:
             "| --- | --- | --- | --- | --- | --- | --- | --- |",
         ]
         lines += [r.as_row() for r in self.results]
-        lines += ["", "## 三、脚本与运行方式", "", "```bash", "# 本套件（Web / 桌面端）", "", "# 后端 pytest（单元 + 集成）", "cd backend && .venv/Scripts/python.exe -m pytest tests/ -q", "",
-                  "# 桌面壳单测", "cd frontend/desktop && npm test", "", "# 前端单测", "cd frontend/web/vue-element-plus && npm test", "",
-                  "# 本套件（需要 Playwright chromium）", "backend/.venv/Scripts/python.exe -m pytest tests/ -q", "```", ""]
+        lines += ["", "## 三、脚本与运行方式", "", "```bash", "# 本套件（Web / 桌面端）", "", "# TS 后端 vitest（单元 + 契约）", "cd apps/server && npm test", "",
+                  "# 桌面壳单测", "cd apps/desktop && npm test", "", "# 前端单测", "cd apps/ui && npm test", "",
+                  "# 本套件（需要 Playwright chromium）", ".venv-e2e/bin/python -m pytest tests/ -q", "```", ""]
         lines += ["## 四、缺陷清单", ""]
         defects = [r for r in self.results if r.status == "FAIL"]
         if defects:
@@ -264,7 +266,7 @@ class BackendProcess:
         return "".join(list(self._output_tail)[-lines:])
 
     def start(self, timeout: float = 90.0) -> tuple[bool, str]:
-        # 先确保前端产物是最新的：后端托管的就是 frontend/dist，
+        # 先确保前端产物是最新的：后端托管的就是 apps/ui/dist，
         # 产物过期 → e2e 在旧界面上跑，失败全是幻觉。
         self.frontend_note = ensure_frontend_built()
         env = dict(os.environ)

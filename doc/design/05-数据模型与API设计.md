@@ -1,8 +1,8 @@
 # 05 · 数据模型与 API 设计（Data & API）
 
-> **依据**：现状取自 `backend/app/db/models.py`（11 表）与 `backend/app/api/v1/`（83 端点）；目标取自仓库根 `文档.md` §11.1/§11.3/§11.5/§11.8/§11.11 与本目录 `00-总体设计.md` §3 概念模型。
+> **依据**：现状取自 `apps/server/src/db/schema.ts`（11 表）与 `apps/server/src/http/routes/`（83 端点）；目标取自仓库根 `文档.md` §11.1/§11.3/§11.5/§11.8/§11.11 与本目录 `00-总体设计.md` §3 概念模型。
 > **整理日期**：2026-10-26　**对应基线**：commit `c4dac22`
-> **文档性质**：本篇是**表结构与端点契约的唯一来源**。编码时按阶段新增表与端点；前端 `api/endpoints.ts` 必须与本文一致（由 `frontend/scripts/ui_probe/contract_check.py` 校验）。
+> **文档性质**：本篇是**表结构与端点契约的唯一来源**。编码时按阶段新增表与端点；前端 `api/endpoints.ts` 必须与本文一致（由 `apps/scripts/ui_probe/contract_check.py` 校验）。
 
 ---
 
@@ -265,7 +265,7 @@ CREATE TABLE agent_messages (
 | --- | --- | --- |
 | GET | `/runs?status=running` | 运行中的任务列表（供并行观察） |
 
-> **为什么不新增 `/runs/active`**：`runs.py` 已先声明 `GET /runs/{run_id}`（`backend/app/api/v1/runs.py:31`），FastAPI 按声明顺序匹配，`/runs/active` 会被 `{run_id}` 捕获并返回 404。用**查询参数**扩展既有列表端点既无路由风险，也复用了分页与过滤能力。
+> **为什么不新增 `/runs/active`**：`runs.py` 已先声明 `GET /runs/{run_id}`（`apps/server/src/http/routes/runs.ts:31`），Fastify 按声明顺序匹配，`/runs/active` 会被 `{run_id}` 捕获并返回 404。用**查询参数**扩展既有列表端点既无路由风险，也复用了分页与过滤能力。
 
 `POST /runs/{id}/cancel` 与 `POST /runs/{id}/steer` **已存在**，本阶段只改语义：
 - `cancel`：真正中止（现有实现仅置标志，需在工具边界生效并终止流式生成）；

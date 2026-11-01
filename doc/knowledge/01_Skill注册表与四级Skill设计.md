@@ -1,7 +1,7 @@
 # Skill 注册表与四级 Skill 设计（扩充版）
 
 > - **整理日期**：2026-09-15（首发 2026-09-15 扩充）
-> - **依据项目**：`apps/agent/backend/skills/`（6 Skill：pdf/data-analysis/frontend-design/marketing-materials/ralph-loop/skill-creator）+ `services/skill_manager.py`
+> - **依据项目**：`apps/agent/skills/`（6 Skill：pdf/data-analysis/frontend-design/marketing-materials/ralph-loop/skill-creator）+ `services/skill_manager.py`
 > - **资料来源**：Anthropic Claude Skills 官方文档 + Claude Code Skills 设计 + AutoGen Skills + LangChain Tools + CrewAI Tools
 
 ---
@@ -51,7 +51,7 @@ flowchart LR
 ## 2.1 Skill 目录结构（实测）
 
 ```
-backend/skills/
+skills/
 ├── pdf/                    # Skill 1
 │   ├── SKILL.md            # 系统提示 + 工作流说明
 │   ├── forms.md            # PDF forms 专题
@@ -363,7 +363,7 @@ class SkillEvaluator:
 | [5] | 官方文档 | LangChain Tools | https://python.langchain.com/docs/concepts/tools/ | 2026-09-15 |
 | [6] | 官方文档 | CrewAI Tools | https://docs.crewai.com/concepts/tools | 2026-09-15 |
 | [7] | 官方文档 | OpenAI Agents SDK | https://platform.openai.com/docs/agents | 2026-09-15 |
-| [8] | 同源文档 | `apps/agent/backend/skills/skill-creator/` | 元 Skill | 2026-09-15 |
+| [8] | 同源文档 | `apps/agent/skills/skill-creator/` | 元 Skill | 2026-09-15 |
 | [9] | 同源文档 | `apps/industry-research/doc/knowledge/01_企业级JWT认证与多租户隔离.md` | 跨项目参考 | 2026-09-15 |
 
 ---

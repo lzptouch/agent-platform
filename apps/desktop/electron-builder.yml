@@ -1,0 +1,67 @@
+# Agent Desktop 打包配置（electron-builder）
+# 产物矩阵与命名约定见 doc/design/02-系统架构设计.md §7.2
+#
+# **改造要点（design/16 §8.3）**：
+# - ❌ 删除 `.stage/runtime`（portable Python，670MB）→ **软件只剩一个运行时**；
+# - ✅ 新增 `apps/server/dist`（TS 后端）与 `skills`（内置 Skill）；
+# - ✅ asarUnpack 补 `.dylib`（macOS 原生依赖）。
+appId: dev.agentplatform.desktop
+productName: Agent Desktop
+directories:
+  output: release          # 不得与 files 内目录同名
+  buildResources: resources
+files:
+  - dist-main/**
+  - dist-preload/**
+  - package.json
+  # 不把 sourcemap 打进安装包：既占体积，也等于把第三方源码原样发出去
+  # （electron-updater 自带 50 个 .map；PAK-11 要求 asar 内无 .map）
+  - "!**/*.map"
+extraResources:
+  - from: ../ui/dist         # 前端产物（apps/ui/dist，不进 asar，经 AGENT_FRONTEND_DIST 传给后端）
+    to: frontend
+  # ★ TS 后端（不进 asar；由 utilityProcess.fork 加载）
+  #   `.pack/` 由 scripts/build-desktop.mjs 的 stageServer() 生成，内含：
+  #   dist 内容（平铺）+ package.json（type: module）+ 生产依赖 + .native/abi-<ABI>/
+  - from: ../server/.pack
+    to: server
+  - from: ../../skills        # ★ 内置 Skill（只读，经 AGENT_SKILLS_DIR 传给后端）
+    to: skills
+asar: true
+asarUnpack:
+  - "**/*.node"            # 原生 node 模块（better-sqlite3 等）
+  - "**/*.dll"             # Windows 原生依赖（不得从 asar 内加载）
+  - "**/*.so"              # POSIX 原生依赖
+  - "**/*.dylib"           # ★ macOS 原生依赖
+  - "**/*.pyd"             # Windows Python 扩展（可选 Python 运行时）
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  signingHashAlgorithms: [sha256]
+  artifactName: ${productName}-${version}-${arch}.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  differentialPackage: true        # 差分包，配合 electron-updater
+  deleteAppDataOnUninstall: false  # 卸载时保留用户数据
+  include: resources/installer.nsh
+mac:
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+    - target: zip                # electron-updater 的 macOS 更新通道必须用 zip
+      arch: [x64, arm64]
+  hardenedRuntime: true
+  entitlements: resources/entitlements.mac.plist
+  notarize: true
+  artifactName: ${productName}-${version}-mac-${arch}.${ext}
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]
+    - target: deb
+      arch: [x64]
+  category: Development
+  artifactName: ${productName}-${version}-${arch}.${ext}

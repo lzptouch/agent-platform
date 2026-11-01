@@ -1,8 +1,13 @@
 """`tests/` 的全局钩子（P5-03 · 分层 marker 自动打标）。
 
-**为什么自动打标**：用例分散在 `web/` `desktop/` `packaged/` `native/` `deploy/` `visual/`
-六个目录里，逐个文件加 ``@pytest.mark.xxx`` 会漏、也会与目录语义脱节。
-这里按**目录**兜底打标，保证：
+**改造要点（design/16 §11.10 · P8-04）**：旧 Python 后端（`backend/`）已退场，
+本目录不再需要把 `backend/` 加进 `sys.path`，也不再提供基于 `starlette` 的
+`client` fixture —— **保留的用例全部走「真实进程 + HTTP / Playwright」**，
+不依赖任何后端内部导入。
+
+**为什么自动打标**：用例分散在 `desktop/` `packaged/` `visual/` 三个目录里，
+逐个文件加 ``@pytest.mark.xxx`` 会漏、也会与目录语义脱节。这里按**目录**兜底
+打标，保证：
 
 - ``pytest -m unit`` 只跑单元测试（不含 e2e）；
 - ``pytest -m e2e`` 只跑端到端；
@@ -15,32 +20,17 @@ from pathlib import Path
 
 import pytest
 
-#: 让 ``app.*``（后端包）可被导入——本目录的测试从**仓库根**运行，
-#: 与 backend/tests 的导入路径不同。
+#: 仓库根（让 ``common.*`` 可被导入）。
 REPO_ROOT = Path(__file__).resolve().parents[1]
-BACKEND_ROOT = REPO_ROOT / "backend"
-for _p in (str(BACKEND_ROOT), str(REPO_ROOT / "tests")):
+for _p in (str(REPO_ROOT / "tests"),):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
 
-@pytest.fixture()
-def client():
-    """TestClient（触发 app lifespan → 迁移 + 应用状态初始化）。"""
-    from starlette.testclient import TestClient
-
-    from app.main import app
-
-    with TestClient(app) as c:
-        yield c
-
 #: 目录 → 层标记
 _DIR_MARKERS: dict[str, str] = {
-    "web": "e2e",
     "desktop": "e2e",
     "packaged": "e2e",
-    "native": "e2e",
-    "deploy": "e2e",
     "visual": "e2e",
 }
 

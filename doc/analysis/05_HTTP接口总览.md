@@ -1,10 +1,22 @@
 # HTTP 接口总览
 
-> - **依据代码**：`backend/app/api/v1/*.py`、`backend/app/api/v1/router.py`、`backend/app/api/deps.py`、`backend/app/main.py`、`backend/app/schemas/*.py`
+> - **依据代码**：`apps/server/src/http/routes/*.ts`、`apps/server/src/http/app.ts`、`apps/server/src/http/deps.ts`、`apps/server/src/main.ts`、`apps/server/src/http/routes/*.ts`
 > - **资料来源**：2026-10-31 逐文件探查 + OpenAPI 规格导出（`app.openapi()`；口径由 `scripts/facts.py` 从代码直接提取）
 > - **整理日期**：2026-10-31（S0~S8 阶段编码完成 + **P1~P6 六批次 83 项全部交付**后复核）
 > - **对应基线**：commit `7385dcd` + 工作区未提交改动
 > - **相关篇目**：`01` 架构总览 ｜ `02` 能力链 ｜ `03` 执行引擎 ｜ `06` 前端契约 ｜ `08` 调度 ｜ `12` 风险台账 ｜ `14` 权限 ｜ `15` 工作区 ｜ `16` 上下文成本 ｜ `17` 扩展层
+
+
+> **📌 状态横幅（2026-11-01 · 单运行时改造后）**：本文正文的**能力语义**仍然有效，
+> 但其中三处**实现载体**已变化，读时请按此对照：
+>
+> | 文中写法 | 现状 |
+> | --- | --- |
+> | **Milvus Lite**（`milvus_store.py` / `milvus-lite`） | → **进程内 SQLite 向量层**（`apps/server/src/domain/rag/store.ts`）：`data/vectors/chunks.db`；BM25 由进程内倒排实现。**两腿结构与融合策略不变** |
+> | **Web 形态**（浏览器直连 / CORS / API Key 鉴权） | → **已退场**（design/16 §9.1）。桌面端渲染进程与 sidecar **同源** → 无跨域、无 API Key；鉴权改为「**Host 白名单 + 一次性 nonce + 会话 Cookie**」 |
+> | **Docker Compose / 容器化** | → **已退场**。发布物只有**桌面安装包**（dmg / nsis / AppImage）；发布手册见 `deploy/README.md` |
+>
+> **后端路径**同时由 `backend/app/**`（Python）迁到 `apps/server/src/**`（TypeScript）。
 
 ---
 
@@ -14,18 +26,18 @@
 
 | 项 | 值 |
 | --- | --- |
-| 统一前缀 | `/api/v1`（`backend/app/main.py:148`） |
+| 统一前缀 | `/api/v1`（`apps/server/src/main.ts:148`） |
 | 子 router 数 | **17** |
 | 端点总数 | **98 条唯一路径 / 126 个操作** |
 | 方法分布 | GET **57** / POST **49** / DELETE **10** / PUT **8** / PATCH **2** |
 | SSE 端点 | **4**（`/agent/run`、`/runs/{run_id}/stream`、`/research/{task_id}/stream`、`/desktop/events`）——**`/runs/{run_id}/events` 是分页 JSON，不是 SSE** |
 | 鉴权 | **桌面形态**：Host 白名单 + 会话令牌/Cookie；**Web 形态**：**完全无鉴权** |
 | 限流 | **无**（仅有 Agent 并发预算信号量，见 `11`） |
-| 鉴权型 `Depends` | **0 个**——86 处 `Depends` 全是「从 `app.state` 取共享服务」的服务获取器（`backend/app/api/deps.py:21-83`） |
+| 鉴权型 `Depends` | **0 个**——86 处 `Depends` 全是「从 `app.state` 取共享服务」的服务获取器（`apps/server/src/http/deps.ts:21-83`） |
 | 额外端点 | `GET /docs-info`（`include_in_schema=False`）；桌面态另有 `GET /__desktop/bootstrap`、`GET /__desktop/ping`（`main.py:167-175`） |
 | 文档 | `/docs`（Swagger）、`/redoc`（ReDoc）、`/openapi.json` |
 
-**17 个子 router 的聚合**（`backend/app/api/v1/router.py:26-42`，统一由 `main.py` 加 `/api/v1`）：
+**17 个子 router 的聚合**（`apps/server/src/http/app.ts:26-42`，统一由 `main.py` 加 `/api/v1`）：
 
 | # | 模块 | router 前缀 | tags | 端点数 | 注册行 |
 | --- | --- | --- | --- | --- | --- |
@@ -51,7 +63,7 @@
 >
 > **合计：98 条唯一路径 / 126 个操作**（S1~S8 新增 46 个操作；P1~P6 六批次新增 8 个操作，见 §2.13~§2.14）。
 
-### 1.1 `api/v1` 之外的端点（`backend/app/main.py`）
+### 1.1 `api/v1` 之外的端点（`apps/server/src/main.ts`）
 
 | 方法 | 路径 | 说明 | 位置 |
 | --- | --- | --- | --- |
@@ -64,7 +76,7 @@
 
 ## 二、端点全表
 
-> 「响应」列只列成功响应的关键字段；「错误」列列**代码里显式 raise 的** `HTTPException`（不含 Pydantic 422 等框架默认行为）。`{x}` 为路径参数。
+> 「响应」列只列成功响应的关键字段；「错误」列列**代码里显式 raise 的** `HTTPException`（不含 Zod 422 等框架默认行为）。`{x}` 为路径参数。
 
 ### 2.1 `system.py`（2）
 
@@ -105,7 +117,7 @@
 
 | METHOD 路径 | 函数 | 请求 | 响应 | 错误 |
 | --- | --- | --- | --- | --- |
-| `POST /api/v1/sessions` | `create_session` | `SessionCreate{mode,title?,skills?,team_id?,config?}` | `SessionOut`（201） | 非法 mode → **422**（Pydantic Literal 校验） |
+| `POST /api/v1/sessions` | `create_session` | `SessionCreate{mode,title?,skills?,team_id?,config?}` | `SessionOut`（201） | 非法 mode → **422**（Zod Literal 校验） |
 | `GET /api/v1/sessions` | `list_sessions` | query `mode`(pattern `^(chat\|plan\|work)$`), `page≥1`, `page_size 1..100`, `include_archived` | `Page[SessionOut]`（**默认过滤已软删会话**） | — |
 | `GET /api/v1/sessions/{session_id}` | `get_session` | query `message_limit 1..500`, `before_seq` | `SessionDetail`（含 messages, has_more） | 404 |
 | `PATCH /api/v1/sessions/{session_id}` | `update_session` | `SessionUpdate{title?,archived?,skills?,team_id?,config?}` | `SessionOut` | 404 |
@@ -218,7 +230,7 @@
 
 ### 2.14 S2~S8 与 P1~P6 新增端点（工作空间 / 上下文成本 / 扩展三层 / 桌面）
 
-> 本小节由 OpenAPI 规格导出（`backend/app/main.py` 的 `app.openapi()`），是**新增能力的权威清单**；
+> 本小节由 OpenAPI 规格导出（`apps/server/src/main.ts` 的 `app.openapi()`），是**新增能力的权威清单**；
 > 2.1~2.13 是手写细节表（保留请求 / 响应 / 错误语义）。
 
 | 方法 | 路径 | 分组 | 说明 |
@@ -282,14 +294,14 @@
 | **409** | 冲突（重名 / 不在待审批状态） | `POST/PUT /skills`、`/teams`、`/agent/runs/{id}/approve\|reject` |
 | **413** | **请求体过大** | `POST /files/upload`（单文件 50MB / 单请求 100MB）；`POST /skills/import`（zip 20MB） |
 | **415** | **媒体类型不支持** | `POST /files/upload`（扩展名/MIME 不在白名单） |
-| **422** | 参数校验失败（Pydantic 默认 + 显式） | 全站；`PUT /workspaces/{id}/manifest`（manifest 字段类型非法）；`POST /orchestrate`（参数非法） |
+| **422** | 参数校验失败（Zod 默认 + 显式） | 全站；`PUT /workspaces/{id}/manifest`（manifest 字段类型非法）；`POST /orchestrate`（参数非法） |
 | **500** | 未捕获异常 | RAG / Web Research / MCP start 与 call |
 | **503** | **能力缺失（缺 API Key）/ 依赖未就绪** | `POST /agent/chat`、`POST /rag/query`、`POST /web_research/research`；`POST /orchestrate`（未绑定 Agent） |
 
 **显式异常统计**（2026-10-31 复核实测）：`HTTPException` **120** 处 + `AppError` **3** 处 = **123**。
 自定义 `status_code` 分布：404×50、422×39、500×9、201×8、409×6、400×6、503×4、403×4、413×3、204×3、415×1、202×1。
 
-**前端对应**（`frontend/web/vue-element-plus/src/api/client.ts:57-65` 的 `classify()`）：
+**前端对应**（`apps/ui/src/api/client.ts:57-65` 的 `classify()`）：
 
 | HTTP 状态 | 前端文案 |
 | --- | --- |
@@ -379,21 +391,21 @@ Connection: keep-alive
 
 | 编号 | 观察 | 证据 | 指向 |
 | --- | --- | --- | --- |
-| S-05-01 | ~~`mcp_servers_available` 在 `/health` 中硬编码为 `3`~~ **已修**（S1 WP-1.9 起读 MCP 注册表） | `backend/app/api/v1/system.py:69` | 已关闭 |
-| S-05-02 | MCP `start`/`stop` 是「启用/停用注册」语义，子进程只在调用时按需拉起；前端可能误以为 start 后进程常驻 | `backend/app/services/mcp_manager.py:8,94-100` | `12` §2 |
-| S-05-03 | `POST /research` 无检索 Key 时返回 200 + `status="failed"`，与 RESTful 状态码惯例冲突 | `backend/app/api/v1/research.py:112-123` | `12` §2 |
-| S-05-04 | `GET /research/{id}` 的 `progress` 只回最近 20 条，完整进度需走 SSE | `backend/app/api/v1/research.py:141-163` | `07` |
-| S-05-05 | ~~`POST /files/upload` 无大小限制~~ **已修**（批次 01 WP-2：415 类型 + 413 大小 50MB/100MB） | `backend/app/api/v1/files.py:54-102`；`core/uploads.py` | 已关闭 |
-| S-05-06 | `POST /agent/chat` 是**非 SSE** 的完整 JSON 响应（含 `reasoning`/`answer`），与 `/agent/run` 的 SSE 形态不同 | `backend/app/api/v1/agent.py:132-144` | `03` §1 |
-| S-05-07 | `POST /agent/run/sync` 的 `RunResult.rounds` 恒为 `0`（字段占位但未回填） | `backend/app/api/v1/agent.py:73-101` | `12` §2 |
-| S-05-08 | `GET /mcp_servers/{name}` 的工具列举异常返回 **200 + `error` 字段**而非错误码 | `backend/app/api/v1/mcp_servers.py:31-42` | `12` §2 |
-| S-05-09 | 所有 DELETE 端点（204）不可恢复，无回收站；Skill 删除是软删除（移入 `.trash/`）但会话/团队/任务不是 | `backend/app/api/v1/*.py` | `12` §2 |
-| S-05-10 | ~~`rag_ingest` 的 `recreate` 默认 `True`~~ **已改**（批次 03：默认 `False`） | `backend/app/api/v1/rag.py:45` | 已关闭 |
-| S-05-11 | **API 层无任何鉴权型 `Depends`**——81 处 `Depends` 全是服务获取器；Web 形态的 `/api/v1` 全部端点裸奔 | `backend/app/api/deps.py:21-83` | `12` §3 |
-| S-05-12 | `POST /runs/{run_id}/artifacts/{artifact_id}/save-as` 的 `dest` **不做路径限制**，可写任意绝对路径（与 `revert` 端点的权限判定不对称） | `backend/app/api/v1/workspace.py:119-127` | `12` §3 |
-| S-05-13 | `GET /api/v1/runs/{run_id}/events` 与 `/stream` 语义相近（前者分页 JSON、后者 SSE），命名易混淆 | `backend/app/api/v1/runs.py:51,65` | `06` §6 |
-| S-05-14 | `POST /changes/{id}/revert` 是 API 层**唯一**直接触发权限引擎的端点 | `backend/app/api/v1/workspace.py:99-116` | `14` §5 |
-| S-05-15 | `scheduled_tasks.delivery_json` 有读无写——**没有任何 API 能配置投递通道** | `backend/app/api/v1/schedules.py`；`scheduler_service.py:556-561` | `08` §1.7 |
+| S-05-01 | ~~`mcp_servers_available` 在 `/health` 中硬编码为 `3`~~ **已修**（S1 WP-1.9 起读 MCP 注册表） | `apps/server/src/http/routes/system.ts:69` | 已关闭 |
+| S-05-02 | MCP `start`/`stop` 是「启用/停用注册」语义，子进程只在调用时按需拉起；前端可能误以为 start 后进程常驻 | `apps/server/src/mcp/manager.ts:8,94-100` | `12` §2 |
+| S-05-03 | `POST /research` 无检索 Key 时返回 200 + `status="failed"`，与 RESTful 状态码惯例冲突 | `apps/server/src/http/routes/research.ts:112-123` | `12` §2 |
+| S-05-04 | `GET /research/{id}` 的 `progress` 只回最近 20 条，完整进度需走 SSE | `apps/server/src/http/routes/research.ts:141-163` | `07` |
+| S-05-05 | ~~`POST /files/upload` 无大小限制~~ **已修**（批次 01 WP-2：415 类型 + 413 大小 50MB/100MB） | `apps/server/src/http/routes/files.ts:54-102`；`core/uploads.py` | 已关闭 |
+| S-05-06 | `POST /agent/chat` 是**非 SSE** 的完整 JSON 响应（含 `reasoning`/`answer`），与 `/agent/run` 的 SSE 形态不同 | `apps/server/src/http/routes/agent.ts:132-144` | `03` §1 |
+| S-05-07 | `POST /agent/run/sync` 的 `RunResult.rounds` 恒为 `0`（字段占位但未回填） | `apps/server/src/http/routes/agent.ts:73-101` | `12` §2 |
+| S-05-08 | `GET /mcp_servers/{name}` 的工具列举异常返回 **200 + `error` 字段**而非错误码 | `apps/server/src/http/routes/mcp-servers.ts:31-42` | `12` §2 |
+| S-05-09 | 所有 DELETE 端点（204）不可恢复，无回收站；Skill 删除是软删除（移入 `.trash/`）但会话/团队/任务不是 | `apps/server/src/http/routes/*.ts` | `12` §2 |
+| S-05-10 | ~~`rag_ingest` 的 `recreate` 默认 `True`~~ **已改**（批次 03：默认 `False`） | `apps/server/src/http/routes/rag.ts:45` | 已关闭 |
+| S-05-11 | **API 层无任何鉴权型 `Depends`**——81 处 `Depends` 全是服务获取器；Web 形态的 `/api/v1` 全部端点裸奔 | `apps/server/src/http/deps.ts:21-83` | `12` §3 |
+| S-05-12 | `POST /runs/{run_id}/artifacts/{artifact_id}/save-as` 的 `dest` **不做路径限制**，可写任意绝对路径（与 `revert` 端点的权限判定不对称） | `apps/server/src/http/routes/workspace.ts:119-127` | `12` §3 |
+| S-05-13 | `GET /api/v1/runs/{run_id}/events` 与 `/stream` 语义相近（前者分页 JSON、后者 SSE），命名易混淆 | `apps/server/src/http/routes/runs.ts:51,65` | `06` §6 |
+| S-05-14 | `POST /changes/{id}/revert` 是 API 层**唯一**直接触发权限引擎的端点 | `apps/server/src/http/routes/workspace.ts:99-116` | `14` §5 |
+| S-05-15 | `scheduled_tasks.delivery_json` 有读无写——**没有任何 API 能配置投递通道** | `apps/server/src/http/routes/schedules.ts`；`scheduler_service.py:556-561` | `08` §1.7 |
 
 ---
 

@@ -1,7 +1,7 @@
 # MCP 协议原理与 stdio 实现（扩充版）
 
 > - **整理日期**：2026-09-15（首发 2026-09-15 扩充）
-> - **依据项目**：`apps/agent/backend/app/mcp/servers/{weather,search,xiaohongshu}_server.py` + `services/mcp_manager.py`
+> - **依据项目**：`apps/agent/apps/server/src/mcp/servers/{weather,search,xiaohongshu}_server.py` + `services/mcp_manager.py`
 > - **资料来源**：Anthropic MCP 官方文档 + FastMCP Python SDK + MCP Python SDK + Claude Desktop MCP + JSON-RPC 2.0
 
 ---
@@ -46,7 +46,7 @@ MCP = **开放协议**，标准化 LLM 应用与工具/数据源的通信。类�
 
 - **MCP Client**：调用方（本项目 `mcp_manager.py`）
 - **MCP Server**：提供工具/资源的服务（本项目 3 个 Server）
-- **Host**：用户侧的 LLM 应用（本项目 FastAPI）
+- **Host**：用户侧的 LLM 应用（本项目 Fastify）
 
 ## 1.3 通信协议
 
@@ -85,7 +85,7 @@ MCP = **开放协议**，标准化 LLM 应用与工具/数据源的通信。类�
 ## 2.1 三个 MCP Server（实测）
 
 ```
-backend/app/mcp/servers/
+apps/server/src/mcp/servers/
 ├── weather_server.py      # 工具：get_alerts / get_forecast（真实 NWS API）
 ├── search_server.py       # 工具：web_search / news_search / weather_search（Serper）
 └── xiaohongshu_server.py  # 工具：login / search_notes / post_smart_comment / 等 7 个

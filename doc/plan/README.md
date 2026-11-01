@@ -2,7 +2,7 @@
 
 > **本目录回答**：**还差什么、怎么排、先做哪个、做完怎么验**。
 >
-> **依据**：2026-10-30 对 `backend/app/`、`frontend/web/vue-element-plus/src/`、`frontend/desktop/src/` 的逐文件复核，
+> **依据**：2026-10-30 对 `apps/server/src/`、`apps/ui/src/`、`apps/desktop/src/` 的逐文件复核，
 > 以及 `doc/analysis/12_能力覆盖与风险台账.md` 的 **49 条缺陷** + **13 个未接线模块**。
 > **来源**：[`../design/09`](../design/09-差距矩阵与整改清单.md) §八（本轮新增 46 条）+ §二/§三 的 ⏳/⛔ 条目。
 > **整理日期**：2026-10-30　**2026-10-30 第二次扩充**：补齐条目级总台账、依赖矩阵、工作量、风险登记、交付定义。
@@ -15,6 +15,17 @@
 > **P1（10 项）、P2-02、P2-06、P4-01 已于 2026-10-30 交付**（后端 **367 → 425 passed / 0 failed**，e2e **59 → 89**；**全部 83 项已完成**。
 > 也就是说——**这份台账描述的是纯待办，没有一条已经落地**。缺口与需求的逐条映射见
 > [`../design/01-功能需求规格.md`](../design/01-功能需求规格.md) §11。
+
+
+> **📌 状态横幅（2026-11-01 · 单运行时改造后）**：本文中「**Web 形态**」「浏览器形态」
+> 「`web-e2e`」「CORS」「API Key 鉴权」等表述描述的是**改造前**的形态，**现已退场**
+> （design/16 §9.1）。现行形态只有**桌面安装包**（Electron 壳 + 内嵌 TS sidecar）：
+> - 渲染进程与 sidecar **同源** → **无跨域、无 CORS、无 API Key**；
+> - 鉴权改为「**Host 白名单 + 一次性引导 nonce + 会话 Cookie**」；
+> - `tests/web/`（44 例）与 `tests/deploy/`（8 例）随之删除。
+>
+> **后端路径**同时由 `backend/app/**`（Python）迁到 `apps/server/src/**`（TypeScript）；
+> **前端**由 `frontend/web/vue-element-plus/` 迁到 `apps/ui/`。
 
 ---
 
@@ -124,7 +135,7 @@
 | P2-18 | 工作区写盘 cwd 与权限基准绑定 | R-59 | P1 | M | P2-19 | `services/code_executor.py`、`services/security/permissions.py` | ✅ |
 | P2-19 | `bind_for_run` 接线：一任务一工作空间真正生效 | R-47 | P1 | M | — | `services/workspace/service.py`、`services/run_service.py` | ✅ |
 | P2-20 | manifest 消费方与读写端点 | R-50 | P1 | M | — | `services/workspace/manifest.py`、`api/v1/workspace.py` | ✅ |
-| P2-21 | 产物「另存」按钮接线 | R-60 | P1 | M | P2-12 | `src/components/ResultArtifacts.vue`、`frontend/desktop/src/preload/index.ts` | ✅ |
+| P2-21 | 产物「另存」按钮接线 | R-60 | P1 | M | P2-12 | `src/components/ResultArtifacts.vue`、`apps/desktop/src/preload/index.ts` | ✅ |
 | P2-22 | 插件安装后触发 `SkillManager.reload()` | R-52 | P1 | S | — | `services/chains/skills/plugins.py`、`api/v1/extensions.py` | ✅ |
 | P2-23 | 技能权限：Web 形态可读 SKILL.md + 有效测试 | R-61 | P1 | M | — | `services/security/permissions.py`、`services/skill_manager.py` | ✅ |
 | P2-24 | `/agent/chat` 收敛进统一账本 | R-58 | P1 | M | — | `api/v1/agent.py`、`services/agent/service.py` | ✅ |
@@ -166,7 +177,7 @@
 | P4-11 | MCP 状态灯接真实连接状态 | R-53 | P2 | M | P2-01 | `services/mcp_manager.py`、`api/v1/mcp_servers.py` | ✅ |
 | P4-12 | 首 token 时间戳与三态耗时 | R-56 | P2 | S | — | `src/views/WorkspaceView.vue`、`src/components/chat/ChatMessage.vue` | ✅ |
 | P4-13 | 工作空间控件与 `WorkspacePicker` 接线 | R-48 | P2 | M | — | `src/components/composer/WorkspacePicker.vue`、`src/views/WorkspaceView.vue` | ✅ |
-| P4-14 | `onBackendState` 渲染侧消费 → 降级态 | R-49 | P2 | M | — | `frontend/desktop/src/main/backend.ts`、`frontend/web/.../src/` | ✅ |
+| P4-14 | `onBackendState` 渲染侧消费 → 降级态 | R-49 | P2 | M | — | `apps/desktop/src/main/backend.ts`、`apps/web/.../src/` | ✅ |
 
 ### 3.5 P5 · 测试体系与 CI 门禁（9 项 · 18.0 人日）
 
@@ -174,7 +185,7 @@
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | P5-01 | 建立 `report.json` 产出器 | R-46 / D-42 | P1 | M | — | `tests/common/report.py` | ✅ |
 | P5-02 | 失败自动归类器 `classify.json` | R-46 / D-42 | P1 | M | P5-01 | `tests/common/classify.py` | ✅ |
-| P5-03 | pytest 分层 marker 体系 | R-46 / D-42 | P1 | S | — | `backend/pyproject.toml`、`tests/pytest.ini` | ✅ |
+| P5-03 | vitest 分层 marker 体系 | R-46 / D-42 | P1 | S | — | `apps/server/package.json`、`tests/vitest.ini` | ✅ |
 | P5-04 | 7 层 CI 流水线 | R-46 / D-42 | P1 | L | P5-01、P5-03 | `.github/workflows/` | ✅ |
 | P5-05 | 文档数字门禁脚本 | R-45 / D-42 | P1 | M | P5-01 | `scripts/check_doc_numbers.py` | ✅ |
 | P5-06 | 需求追溯脚本 | R-45 / D-70 | P1 | M | — | `scripts/check_traceability.py` | ✅ |
@@ -184,19 +195,19 @@
 | P5-10 | `git check-ignore` 实跑 + `.gitignore` 锚定修正 | R-57 | P1 | XS | — | `.gitignore`、`tests/desktop/test_desktop_regression.py` | ✅ |
 | P5-11 | 桌面 e2e 事件桥端到端断言 | E-03 | P1 | M | P5-04 | `tests/desktop/test_desktop_regression.py` | ✅ |
 | P5-12 | 孤儿回收强制门禁（缺失即失败而非跳过） | E-05 | P1 | S | P5-04 | `tests/desktop/test_desktop_regression.py` | ✅ |
-| P5-13 | 快照 LRU 清理分支测试 | F-SEC-15 | P1 | XS | — | `backend/tests/test_s3_workspace.py` | ✅ |
+| P5-13 | 快照 LRU 清理分支测试 | F-SEC-15 | P1 | XS | — | `apps/server/tests/test_s3_workspace.py` | ✅ |
 
 ### 3.6 P6 · 发布形态与规模化（6 项 · 9.0 人日）
 
 | # | 工作项 | 差距 / 缺陷 | 优先级 | 工时 | 条目级依赖 | 主要改动落点 | 状态 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | P6-01 | 桌面体积治理 | R-46 / D-72 | P2 | L | P1~P5 | `scripts/build-desktop.mjs`、`scripts/stage-runtime.mjs` | ✅ |
-| P6-02 | 安装包签名（或明确标注取舍） | R-46 / D-72 | P2 | M | P6-01 | `frontend/desktop/electron-builder.yml`、`scripts/verify_desktop_package.py` | ✅ |
+| P6-02 | 安装包签名（或明确标注取舍） | R-46 / D-72 | P2 | M | P6-01 | `apps/desktop/electron-builder.yml`、`scripts/verify_desktop_package.py` | ✅ |
 | P6-03 | 桌面形态容器化（评估） | R-46 / D-73 | P2 | XS | — | `deploy/` | ✅ |
-| P6-04 | 多副本部署前置条件收敛 | R-46 / D-73 | P2 | M | P3-04 | `docker-compose.yml`、`deploy/docker-compose.ha.yml` | ✅ |
+| P6-04 | 多副本部署前置条件收敛 | R-46 / D-73 | P2 | M | P3-04 | ~~`docker-compose.yml`~~（**已退场**）、`deploy/docker-compose.ha.yml` | ✅ |
 | P6-05 | 循环执行检测 | I-01 / D-56 | P2 | M | P1-07 | `services/agent_service.py` | ✅ |
 | P6-06 | 资料库三层结构（评估） | I-03 / D-64 | P2 | XS | — | — | ✅ |
-| P6-07 | 桌面端孤儿回收语义修正 | R-62 | P2 | S | — | `frontend/desktop/src/main/backend.ts`、`scripts/verify_desktop_package.py` | ✅ |
+| P6-07 | 桌面端孤儿回收语义修正 | R-62 | P2 | S | — | `apps/desktop/src/main/backend.ts`、`scripts/verify_desktop_package.py` | ✅ |
 
 ---
 
@@ -289,7 +300,7 @@
 
 | 批次类型 | 最低证据 |
 | --- | --- |
-| 代码修复 | 新增/修改的 pytest 用例通过 + **原有全量不回归** |
+| 代码修复 | 新增/修改的 vitest 用例通过 + **原有全量不回归** |
 | 接线类 | **证明运行时路径真的调用它**（如 `/metrics` 的 `mcp_connections` 从 0 变为非 0） |
 | 删除类 | 全仓 `grep` 无引用 + 文档无残留引用 |
 | 前端类 | vitest + typecheck 0 错误 |
@@ -310,7 +321,7 @@
 | **RK-3** | Skill 轻量索引**漏注入**导致技能静默失效（模型看不到就不会用） | P2-05 | 高 | 中 | 未命中时**回退全量**；加「命中集合 ⊆ 全量集合」断言；灰度期保留全量开关 |
 | **RK-4** | 流式改造下 **`tool_calls` 增量拼装**语义变化导致工具调用解析错误 | P3-14 | 高 | 中 | 只对**文本部分**流式，`tool_calls` 仍等完整响应；错误处理区分「流中途断」与「完整响应出错」 |
 | **RK-5** | 槽位算法改动**破坏幂等地基**（`uq_runs_task_slot` 依赖它） | P3-04 | 高 | 中 | 保留分钟截断为二级去重；**先补一个「槽位回归矩阵」测试**再改算法 |
-| **RK-6** | 删除类工作项**误删仍被使用的代码** | P2-13/14/15 | 中 | 中 | 删除前必须 grep 确认「无生产路径依赖」；删除后跑全量 pytest；git 保留可回滚 |
+| **RK-6** | 删除类工作项**误删仍被使用的代码** | P2-13/14/15 | 中 | 中 | 删除前必须 grep 确认「无生产路径依赖」；删除后跑全量 vitest；git 保留可回滚 |
 | **RK-7** | CI 流水线**消耗 LLM 配额**（`real_llm` 用例） | P5-04 | 中 | 高 | `real_llm` marker 默认 skip，只在夜间 cron 或手动触发；配额上限配置 |
 | **RK-8** | 桌面体积治理**剔掉运行时依赖**导致安装包不可用 | P6-01 | 高 | 中 | 必须跑**打包自检 9/9 + 启动握手 + 存活探针**三项；`--strict` 体积门禁 |
 | **RK-9** | **P2 与 P3 同时改 `agent_service.py` / `run_executor.py`** 造成冲突 | P2-02/03/12、P3-03/05/14 | 中 | 高 | 串行执行 P2 与 P3，或按文件划分并行（见 §4.1 链 ②） |
@@ -328,7 +339,7 @@
 | --- | --- | --- |
 | 1 | **代码改动已合入** | 提交存在于目标分支 |
 | 2 | **验收断言全部通过** | 新增/修改的用例全绿，断言级别与七要素中「验收断言」一致 |
-| 3 | **原有全量不回归** | 后端 pytest ≥ 上一批基线且 0 failed；前端 vitest ≥ 83；桌面壳 ≥ 45；e2e ≥ 59 |
+| 3 | **原有全量不回归** | 后端 vitest ≥ 上一批基线且 0 failed；前端 vitest ≥ 83；桌面壳 ≥ 45；e2e ≥ 59 |
 | 4 | **文档状态列已同步** | `design/09` / `design/01` / `analysis/12` / `plan/README` §3 四处状态一致 |
 | 5 | **改动落点无意外扩散** | 实际改动文件清单 ⊆ §3「主要改动落点」∪ 明确声明的新增文件 |
 
@@ -401,8 +412,8 @@ grep -c "^| P[1-6]-" doc/plan/README.md         # 总台账条目数，应为 82
 grep -oE "^\| [0-9]+ \| \`[^\`]+\`" doc/analysis/12_能力覆盖与风险台账.md
 
 # 6. 状态列与实际代码一致性（抽样）
-cd backend && .venv/bin/python -m pytest tests/ -q --no-header -p no:cacheprovider 2>&1 | tail -2
-cd ../frontend/web/vue-element-plus && npx vitest run --reporter=dot 2>&1 | grep -E "Test Files|Tests"
+cd backend && npx vitest run tests/ -q --no-header -p no:cacheprovider 2>&1 | tail -2
+cd ../apps/web/vue-element-plus && npx vitest run --reporter=dot 2>&1 | grep -E "Test Files|Tests"
 ```
 
 ---
@@ -421,3 +432,30 @@ cd ../frontend/web/vue-element-plus && npx vitest run --reporter=dot 2>&1 | grep
 | **批次进度** | P1 `✅10/10` ｜ P2 `✅24/24` ｜ P3 `✅15/15` ｜ P4 `✅14/14` ｜ P5 `✅13/13` ｜ P6 `✅7/7` ｜ **合计 `83/83`**（全部交付） |
 | **测试基线** | 后端 `528` ｜ 前端 `83` ｜ 桌面 `45` ｜ e2e `89`（web 44 / desktop 10 / packaged 15 / native 10 / deploy 8 / visual 3）（每完成一项更新）｜ 汇总工件 `tests/report/runs/<runId>/report.json` |
 | **文档同步** | `design/09` ☐ ｜ `design/01` ☐ ｜ `analysis/12` ☐ ｜ `plan/README` §3 ☐ |
+
+---
+
+## 附：2026-11-01 · 单运行时改造后的批次状态
+
+> **2026-11-01 执行了 [`../design/16`](../design/16-桌面一体化改造方案与实施计划.md) 的 P0~P8**。
+> 本目录的八个批次是 **2026-10-28~10-31 的整改计划**（🕘 历史归档，记录当时的判断）。
+> 改造带走了其中相当一部分条目，**各批次的当前状态见对应文件的「附：2026-11-01 现状」小节**。
+
+| 批次 | 与单运行时改造的关系 | 当前状态 |
+|---|---|---|
+| 01 正确性与安全边界 | 部分条目被「形态退场」自然消解（Web 鉴权 / CORS / Docker 相关） | 🕘 历史；改造后状态见 `01` 文末 |
+| 02 能力接线与扩展落地 | **大部分条目已随 TS 重写完成接线**（角色生效、黑板接线、RRULE 接线、插件 reload） | 🕘 历史；见 `02` 文末 |
+| 03 调度上下文与数据一致性 | 语义随实现迁移到 `apps/server/src/domain/` | 🕘 历史 |
+| 04 前端契约与可观测补齐 | ★ **本轮新增了「响应形状维度」**（闸门 3c / 3d） | 🕘 历史；见 `04` 文末 |
+| 05 测试体系与 CI 门禁 | ★ **CI 已重写为单运行时**（7 层 + 新增 `llm-e2e` 层） | 🕘 历史；见 `05` 文末 |
+| 06 发布形态与规模化 | ★ **Docker 形态退场**；体积预算重定义；签名/自动更新仍开放 | 🕘 历史；见 `06` 文末 |
+| 07 全面代码审计整改计划 | W0~W6（58 项） | 🕘 历史归档（当时已全部交付） |
+| 08 二次全面审计整改计划 | W7~W12（67 项） | 🕘 历史归档（当时已全部交付） |
+
+### 新增的「交付纪律」（design/16 §1.3）
+
+| # | 纪律 | 落地 |
+|---|---|---|
+| 1 | **全量基线测试留痕** | `doc/test-runs/P0-baseline/`（695 例逐条 + 契约冻结 + 185 项功能基线） |
+| 2 | **功能等价** | `doc/test-runs/P9-final/diffs.csv`（equivalent 10 · waived 6 · **defect 0**） |
+| 3 | **代码仅人工提交** | 全程未执行 `git add` / `commit` / `push` / 分支操作 —— HEAD 仍是改造前的 `0c12024` |

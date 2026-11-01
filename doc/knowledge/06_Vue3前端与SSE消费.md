@@ -1,6 +1,6 @@
 # Vue 3 + TypeScript 前端与 SSE 消费原理
 
-> - **依据项目**：`frontend/web/vue-element-plus/`（Vue 3.5 + TS 5.7 + Element Plus 2.8 + Pinia 2.2 + Vite 6）
+> - **依据项目**：`apps/ui/`（Vue 3.5 + TS 5.7 + Element Plus 2.8 + Pinia 2.2 + Vite 6）
 > - **资料来源**：本项目代码（2026-10-26 探查）+ MDN ReadableStream / EventSource 官方 + Vue 3 官方
 > - **整理日期**：2026-10-26
 > - **范围**：前端架构形态 + SSE 流式消费原理 + 断流恢复机制
@@ -12,7 +12,7 @@
 
 ## 一、工程形态
 
-本项目的唯一前端实现是 `frontend/web/vue-element-plus/`：
+本项目的唯一前端实现是 `apps/ui/`：
 
 | 维度 | 实现 |
 | --- | --- |

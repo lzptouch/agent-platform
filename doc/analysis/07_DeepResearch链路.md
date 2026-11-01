@@ -1,6 +1,6 @@
 # Deep Research 链路
 
-> - **依据代码**：`backend/app/services/research/{orchestrator.py,workers.py,research_manager.py,research_config.py,prompts.py,search_client.py,llm_client.py,service.py,utils.py}`、`backend/app/api/v1/research.py`
+> - **依据代码**：`apps/server/src/domain/research/{orchestrator.ts,workers.py,research_manager.py,research_config.py,prompts.py,search_client.py,llm_client.py,service.py,utils.py}`、`apps/server/src/http/routes/research.ts`
 > - **资料来源**：2026-10-29 逐文件复核
 > - **整理日期**：2026-10-29
 > - **对应基线**：commit `7385dcd` + 工作区未提交改动
@@ -18,7 +18,7 @@ Deep Research 是五条能力链中**唯一不走 `ToolRegistry` 的链路**：�
 
 ## 二、编排骨架（Orchestrator）
 
-`Orchestrator.run(task)`（`backend/app/services/research/orchestrator.py:675-878`）驱动一个 **5 阶段状态机**：
+`Orchestrator.run(task)`（`apps/server/src/domain/research/orchestrator.ts:675-878`）驱动一个 **5 阶段状态机**：
 
 ```mermaid
 stateDiagram-v2
@@ -75,7 +75,7 @@ with ThreadPoolExecutor(max_workers=actual_workers) as executor:
 
 ## 三、OODA 子循环（Worker）
 
-`SearchWorker.execute(subtask)`（`backend/app/services/research/workers.py:137-221`）是默认 Worker，内嵌 **OODA 循环**：
+`SearchWorker.execute(subtask)`（`apps/server/src/domain/research/workers.ts:137-221`）是默认 Worker，内嵌 **OODA 循环**：
 
 ```mermaid
 flowchart LR
@@ -164,7 +164,7 @@ flowchart TB
 
 ### 4.3 质量评分的**六个维度**
 
-评分 prompt 在 `backend/app/services/research/prompts.py:253-330`，要求 LLM 输出 6 个维度的分项 + 总分：
+评分 prompt 在 `apps/server/src/domain/research/prompts.ts:253-330`，要求 LLM 输出 6 个维度的分项 + 总分：
 
 | # | 维度 | key | 检查要点（prompt 行号） |
 |---|---|---|---|
@@ -199,14 +199,14 @@ flowchart TB
 | `diminishing_returns_threshold` | `3` | `:81` | ❌ **未被引用（死配置）** |
 | `early_termination_min_score` | `75` | `:82` | ❌ **未被引用（死配置）** |
 
-API 侧覆盖范围：`max_workers` 1–10、`max_iterations` 1–10、`quality_threshold` 0–100（`backend/app/schemas/research.py:15-17`）。
+API 侧覆盖范围：`max_workers` 1–10、`max_iterations` 1–10、`quality_threshold` 0–100（`apps/server/src/http/routes/research.ts:15-17`）。
 可覆盖键白名单：`OVERRIDABLE_KEYS = ("max_iterations", "quality_threshold")`（`services/research/service.py:21`），**`max_workers` 走构造参数不走 overrides**（`service.py:50`）。
 
 ## 五、检索提供方与 LLM
 
 ### 5.1 检索 provider 三态
 
-`SearchClient.provider`（`backend/app/services/research/search_client.py:35-42`）：
+`SearchClient.provider`（`apps/server/src/domain/research/search_client.ts:35-42`）：
 
 ```python
 if settings.bocha_api_key:      → "bocha"
@@ -215,16 +215,16 @@ else:                           → "none"
 ```
 
 - Bocha：POST `https://api.bocha.cn/v1/web-search`（`:70-118`），payload `{query, summary, count, freshness?}`，timeout 30s（`:87`）；响应 `data.webPages.value[]` → `SearchResult`（`:99-108`）；
-- Serper：复用 `backend/app/services/web/serper_service.py`（`:123`）；
+- Serper：复用 `apps/server/src/domain/web/serper.ts`（`:123`）；
 - none：**无检索能力**。
 
 `multi_search` 顺序执行，每条间隔 **0.5s**（`:59-66`）。单例 `get_search_client()`（`:148`）。
 
-`POST /api/v1/research` 在 `provider == "none"` 时**返回 HTTP 200 + `status="failed"` + 明确文案**（`backend/app/api/v1/research.py:112-123`），而非抛异常——快速失败但不当作系统错误。
+`POST /api/v1/research` 在 `provider == "none"` 时**返回 HTTP 200 + `status="failed"` + 明确文案**（`apps/server/src/http/routes/research.ts:112-123`），而非抛异常——快速失败但不当作系统错误。
 
 ### 5.2 LLM 客户端
 
-`LLMClient`（`backend/app/services/research/llm_client.py`）独立于 `backend/app/core/llm.py`（DeepSeek），用 DashScope qwen 系列：
+`LLMClient`（`apps/server/src/domain/research/llm_client.ts`）独立于 `apps/server/src/shared/llm.ts`（DeepSeek），用 DashScope qwen 系列：
 
 | 用途 | 配置键 | 模型 |
 | --- | --- | --- |
@@ -234,11 +234,11 @@ else:                           → "none"
 
 > ⚠️ **`model_smart` / `model_fast` 定义但从未使用**——代码不按复杂度切模型，实际全部走 `model`。
 
-文件头注释明确说明与 `backend/app/core/llm.py` **刻意分离**。`chat_stream()` 支持 `include_usage`。
+文件头注释明确说明与 `apps/server/src/shared/llm.ts` **刻意分离**。`chat_stream()` 支持 `include_usage`。
 
 ### 5.3 配置覆盖与并发安全
 
-`service.py:run_research()`（`backend/app/services/research/service.py:24-54`）允许覆盖 `AGENT_CONFIG` 的两个键（`OVERRIDABLE_KEYS = ("max_iterations", "quality_threshold")`，`:21`）。
+`service.py:run_research()`（`apps/server/src/domain/research/service.ts:24-54`）允许覆盖 `AGENT_CONFIG` 的两个键（`OVERRIDABLE_KEYS = ("max_iterations", "quality_threshold")`，`:21`）。
 
 **覆盖按实例传递**：`overrides` 字典被传给 `Orchestrator(overrides=overrides)`（`service.py:48-53`），编排器在 `self.overrides`（`orchestrator.py:150`）中读取（`:692-695`），**不再「改全局 → finally 还原」**。
 
@@ -296,7 +296,7 @@ data/research/
 | 补充 | `gap_analyzed` / `supplementary_dispatched` / `supplementary_completed` / `report_refined` |
 | 终态 | `completed` / `failed` |
 
-前端 `STAGE_LABEL` 与之一一对应（`frontend/web/vue-element-plus/src/views/ResearchView.vue`）。
+前端 `STAGE_LABEL` 与之一一对应（`apps/ui/src/views/ResearchView.vue`）。
 
 ---
 
@@ -368,24 +368,24 @@ Deep Research 的持久化是**文件 + DB 双写**：
 
 | 编号 | 观察 | 证据 | 指向 |
 | --- | --- | --- | --- |
-| S-07-01 | `WriterWorker` / `AnalysisWorker` / `VisualizationWorker` / `WorkerFactory` 已实现但 Orchestrator 从不调用，能力虚高 | `backend/app/services/research/workers.py:523,577,645,734`；`orchestrator.py:268-275` | `12` §2.2 |
-| S-07-02 | 检索 provider 三态自动选择，**无 Key 时 `POST /research` 返回 200 + `status="failed"`**，客户端无法用 HTTP 状态码判失败 | `backend/app/api/v1/research.py:112-123` | `12` §2 |
-| S-07-03 | 任务无 checkpoint 恢复：重启后非终态任务整体标 `failed`，不从中断点续跑 | `backend/app/services/research/research_manager.py:48-61` | `12` §2 |
-| S-07-04 | ~~任务与业务运行账本不互通~~ **已修**（S1 WP-1.8）：研究任务写穿 `runs`（`trigger=research`），并可从账本恢复 | `backend/app/services/research/research_manager.py:93-182` | 已关闭 |
-| S-07-05 | 最坏并发 `3 × 6 = 18` Worker 线程，每个都可能起检索请求与 LLM 调用，无全局速率限制 | `backend/app/services/research/orchestrator.py:268-315` | `11` §2 |
-| S-07-06 | ~~`AGENT_CONFIG` 是可变模块级 dict，try/finally 还原防并发串扰~~ **已修**：覆盖改为**按实例传递**（`Orchestrator(overrides=...)`），全局 dict 不再被改写 | `backend/app/services/research/service.py:46-53`；`orchestrator.py:150,692-695` | 已关闭 |
-| S-07-06b | `OVERRIDABLE_KEYS` 只含 `max_iterations` / `quality_threshold`，但 `Orchestrator` 的 `self.overrides` **支持 `min_iterations`**（`orchestrator.py:692`）——该键在 service 层被过滤掉，API 无法覆盖 | `backend/app/services/research/service.py:21,44`；`orchestrator.py:692` | `12` §2.3 |
-| S-07-07 | `tasks.json` 全量读写（每次 `_save_tasks()` 写整个文件），任务数增长后 IO 放大 | `backend/app/services/research/research_manager.py:79-80` | `11` §2 |
-| S-07-08 | 研究任务的进度事件**不落 `run_events`**，断流恢复靠 `stage\|ts` 去重而非 `seq` 游标，与运行账本的回放机制不一致 | `backend/app/services/research/` | `12` §2 |
-| S-07-09 | 报告无版本管理，同一任务多次运行会生成多份 `report_<ts>.md`，无「最新」指针 | `backend/app/services/research/research_manager.py:295-336` | `12` §2 |
-| S-07-10 | **`FACT_CHECK_PROMPT` 全仓无引用** → 「事实核查」能力缺失（`speculative_vs_factual` 依赖 LLM 自填，不是独立核查） | `backend/app/services/research/prompts.py:585` | `12` §2.2 |
-| S-07-11 | **OODA 的 `_act` 阶段空实现**——只返回动作描述，不执行动作，实际是「三步半」 | `backend/app/services/research/workers.py:349` | `12` §2.2 |
-| S-07-12 | `_decide` 生成的新查询词是「信息空白描述的前 50 字符」，**不是真实检索式**，检索质量存疑 | `backend/app/services/research/workers.py:341` | `12` §2.2 |
-| S-07-13 | `_observe` 里 `queries_to_use = search_queries[:queries_remaining]` → **第一轮就把全部 query 打满**，后续轮次无新查询可打（除非 `_decide` 换词） | `backend/app/services/research/workers.py:276` | `12` §2.2 |
-| S-07-14 | **来源质量白/黑名单硬编码两份且不一致**：`workers.py:367-379` vs `research_config.py:93-108`（config 多 `idc`；config 的 `speculative_language` 从未被用） | `backend/app/services/research/workers.py:367-379`；`research_config.py:93-108` | `12` §2.3 |
-| S-07-15 | `research_config.py` 有 **10 个死键**（`max_search_depth`/`worker_count_guidelines`/`min_sources_per_topic`/`report_language`/`include_sources`/`include_summary`/`diminishing_returns_threshold`/`early_termination_min_score`/`worker_max_ooda_cycles`/`research_budget`） | `backend/app/services/research/research_config.py:54-91` | `12` §2.3 |
-| S-07-16 | `model_smart` / `model_fast` 定义但**从不按复杂度切模型** | `backend/app/services/research/research_config.py:29-30` | `12` §2.3 |
-| S-07-17 | 质量 JSON 解析失败兜底 `overall_score=70` —— 可能虚高通过阈值判定 | `backend/app/services/research/orchestrator.py:426` | `12` §2.1 |
+| S-07-01 | `WriterWorker` / `AnalysisWorker` / `VisualizationWorker` / `WorkerFactory` 已实现但 Orchestrator 从不调用，能力虚高 | `apps/server/src/domain/research/workers.ts:523,577,645,734`；`orchestrator.py:268-275` | `12` §2.2 |
+| S-07-02 | 检索 provider 三态自动选择，**无 Key 时 `POST /research` 返回 200 + `status="failed"`**，客户端无法用 HTTP 状态码判失败 | `apps/server/src/http/routes/research.ts:112-123` | `12` §2 |
+| S-07-03 | 任务无 checkpoint 恢复：重启后非终态任务整体标 `failed`，不从中断点续跑 | `apps/server/src/domain/research/manager.ts:48-61` | `12` §2 |
+| S-07-04 | ~~任务与业务运行账本不互通~~ **已修**（S1 WP-1.8）：研究任务写穿 `runs`（`trigger=research`），并可从账本恢复 | `apps/server/src/domain/research/manager.ts:93-182` | 已关闭 |
+| S-07-05 | 最坏并发 `3 × 6 = 18` Worker 线程，每个都可能起检索请求与 LLM 调用，无全局速率限制 | `apps/server/src/domain/research/orchestrator.ts:268-315` | `11` §2 |
+| S-07-06 | ~~`AGENT_CONFIG` 是可变模块级 dict，try/finally 还原防并发串扰~~ **已修**：覆盖改为**按实例传递**（`Orchestrator(overrides=...)`），全局 dict 不再被改写 | `apps/server/src/domain/research/service.ts:46-53`；`orchestrator.py:150,692-695` | 已关闭 |
+| S-07-06b | `OVERRIDABLE_KEYS` 只含 `max_iterations` / `quality_threshold`，但 `Orchestrator` 的 `self.overrides` **支持 `min_iterations`**（`orchestrator.py:692`）——该键在 service 层被过滤掉，API 无法覆盖 | `apps/server/src/domain/research/service.ts:21,44`；`orchestrator.py:692` | `12` §2.3 |
+| S-07-07 | `tasks.json` 全量读写（每次 `_save_tasks()` 写整个文件），任务数增长后 IO 放大 | `apps/server/src/domain/research/manager.ts:79-80` | `11` §2 |
+| S-07-08 | 研究任务的进度事件**不落 `run_events`**，断流恢复靠 `stage\|ts` 去重而非 `seq` 游标，与运行账本的回放机制不一致 | `apps/server/src/domain/research/` | `12` §2 |
+| S-07-09 | 报告无版本管理，同一任务多次运行会生成多份 `report_<ts>.md`，无「最新」指针 | `apps/server/src/domain/research/manager.ts:295-336` | `12` §2 |
+| S-07-10 | **`FACT_CHECK_PROMPT` 全仓无引用** → 「事实核查」能力缺失（`speculative_vs_factual` 依赖 LLM 自填，不是独立核查） | `apps/server/src/domain/research/prompts.ts:585` | `12` §2.2 |
+| S-07-11 | **OODA 的 `_act` 阶段空实现**——只返回动作描述，不执行动作，实际是「三步半」 | `apps/server/src/domain/research/workers.ts:349` | `12` §2.2 |
+| S-07-12 | `_decide` 生成的新查询词是「信息空白描述的前 50 字符」，**不是真实检索式**，检索质量存疑 | `apps/server/src/domain/research/workers.ts:341` | `12` §2.2 |
+| S-07-13 | `_observe` 里 `queries_to_use = search_queries[:queries_remaining]` → **第一轮就把全部 query 打满**，后续轮次无新查询可打（除非 `_decide` 换词） | `apps/server/src/domain/research/workers.ts:276` | `12` §2.2 |
+| S-07-14 | **来源质量白/黑名单硬编码两份且不一致**：`workers.py:367-379` vs `research_config.py:93-108`（config 多 `idc`；config 的 `speculative_language` 从未被用） | `apps/server/src/domain/research/workers.ts:367-379`；`research_config.py:93-108` | `12` §2.3 |
+| S-07-15 | `research_config.py` 有 **10 个死键**（`max_search_depth`/`worker_count_guidelines`/`min_sources_per_topic`/`report_language`/`include_sources`/`include_summary`/`diminishing_returns_threshold`/`early_termination_min_score`/`worker_max_ooda_cycles`/`research_budget`） | `apps/server/src/domain/research/config.ts:54-91` | `12` §2.3 |
+| S-07-16 | `model_smart` / `model_fast` 定义但**从不按复杂度切模型** | `apps/server/src/domain/research/config.ts:29-30` | `12` §2.3 |
+| S-07-17 | 质量 JSON 解析失败兜底 `overall_score=70` —— 可能虚高通过阈值判定 | `apps/server/src/domain/research/orchestrator.ts:426` | `12` §2.1 |
 | S-07-18 | `research_manager.py` 的 `OUTPUT_CONFIG` / `LOG_CONFIG` 导入后从未使用；`orchestrator.py` 的 `PARALLEL_TASK_COORDINATION_PROMPT` 导入未用 | `research_manager.py:21`；`orchestrator.py:36` | `12` §2.3 |
 
 ---

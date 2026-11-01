@@ -54,7 +54,7 @@ DISPOSITION: dict[str, str] = {
 }
 
 _ENV_RE = re.compile(r"port ?exhaust|端口耗尽|no ?display|无显示|browser not found|浏览器缺失", re.I)
-_DIST_RE = re.compile(r"frontend/dist.*(陈旧|过期)|dist stale|E_DIST_STALE", re.I)
+_DIST_RE = re.compile(r"apps/ui/dist.*(陈旧|过期)|dist stale|E_DIST_STALE", re.I)
 
 
 def infer_error_code(case: dict[str, Any]) -> str:

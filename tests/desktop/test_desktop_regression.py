@@ -7,7 +7,7 @@ Electron 应用用 Playwright 的 Electron 驱动（`_electron.launch`），
 不伪装成通过。
 
 运行：
-    backend/.venv/Scripts/python.exe -m pytest tests/desktop -q
+    .venv-e2e/bin/python -m pytest tests/desktop -q
 """
 from __future__ import annotations
 
@@ -71,7 +71,7 @@ def test_desk_01_packaging_resources():
     """DESK-01 打包资源齐备且可入库（曾因 .gitignore 的 build/ 规则被屏蔽）。"""
     resources = DESKTOP_DIR / "resources"
     icon = resources / "icon.png"
-    assert icon.exists(), "缺少桌面端图标 frontend/desktop/resources/icon.png"
+    assert icon.exists(), "缺少桌面端图标 apps/desktop/resources/icon.png"
     assert icon.stat().st_size > 1024, "图标文件过小，疑似占位空文件"
     assert (resources / "installer.nsh").exists(), "缺少 NSIS 自定义脚本"
     assert (resources / "entitlements.mac.plist").exists(), "缺少 macOS entitlements"
@@ -116,7 +116,7 @@ def test_desk_13_in_presence_contracts():
 def test_desk_02_gitignore_rules():
     """DESK-02 桌面端产物在干净克隆里也会被忽略。"""
     root_ignore = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
-    assert "frontend/desktop/release/" in root_ignore, "根 .gitignore 未忽略 frontend/desktop/release/"
+    assert "apps/desktop/release/" in root_ignore, "根 .gitignore 未忽略 apps/desktop/release/"
     # **P5-10 修正**：此前断言 ``^build/`` —— 那是**非法**的 gitignore 锚定语法
     # （git 视 ``^`` 为字面量），等于把 bug 当成了规范。
     # 正确写法是 ``/build/``（根锚定）；并且 gitignore **不支持行尾注释**
@@ -137,7 +137,7 @@ def test_desk_02_gitignore_rules():
         return proc.returncode == 0
 
     assert _ignored("build/foo.txt"), "仓库根 build/ 未被忽略"
-    assert not _ignored("frontend/desktop/build/main.js"), (
+    assert not _ignored("apps/desktop/build/main.js"), (
         "前端 build 被根规则误屏蔽"
     )
     suite.ok("DESK-02", "忽略规则已并入被跟踪的根 .gitignore（实跑 check-ignore 验证）", "实跑")
@@ -216,10 +216,10 @@ def electron_runtime():
     """
     exe = electron_binary()
     if exe is None:
-        pytest.skip("环境不具备：未下载 Electron 运行时（frontend/desktop/node_modules/electron/dist）")
+        pytest.skip("环境不具备：未下载 Electron 运行时（apps/desktop/node_modules/electron/dist）")
     app_dir = electron_app_dir()
     if app_dir is None:
-        pytest.skip("环境不具备：壳未构建（先执行 cd frontend/desktop && npm run build）")
+        pytest.skip("环境不具备：壳未构建（先执行 cd apps/desktop && npm run build）")
 
     import urllib.request
 

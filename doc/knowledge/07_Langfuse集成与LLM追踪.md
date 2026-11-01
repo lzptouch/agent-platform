@@ -61,13 +61,13 @@ provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(
 trace.set_tracer_provider(provider)
 ```
 
-## 3.2 自动注入 FastAPI
+## 3.2 自动注入 Fastify
 
 ```python
-from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.instrumentation.fastapi import FastifyInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 
-FastAPIInstrumentor.instrument_app(app)
+FastifyInstrumentor.instrument_app(app)
 HTTPXClientInstrumentor().instrument()  # ★ DashScope HTTPX 调用自动追踪
 ```
 
@@ -253,7 +253,7 @@ for item in dataset.items:
 | **Langfuse 已集成** | 经主入口观察到 |
 | 工具来源标注 | `tool_source: builtin/mcp/rag/web`（App.vue:184） |
 | 文件落盘 | `data/outputs/chat_log_*.json`（`agent_service._save_log`） |
-| **OTel SDK 注入** | FastAPI + HTTPX 自动埋点 |
+| **OTel SDK 注入** | Fastify + HTTPX 自动埋点 |
 | 5 链开关 metadata | 可在 Langfuse Trace 中筛选 |
 
 ## 7.2 待改进
@@ -344,7 +344,7 @@ if settings.langfuse_configured:
 ## 8.4 P1-2：前端 Sentry（用户错误）
 
 ```typescript
-// frontend/src/main.ts
+// apps/src/main.ts
 import * as Sentry from '@sentry/vue'
 
 if (import.meta.env.VITE_SENTRY_DSN) {
@@ -387,9 +387,9 @@ def init_langfuse(settings):
     trace.set_tracer_provider(provider)
     
     # 3. 自动注入
-    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+    from opentelemetry.instrumentation.fastapi import FastifyInstrumentor
     from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
-    FastAPIInstrumentor.instrument_app(app)
+    FastifyInstrumentor.instrument_app(app)
     HTTPXClientInstrumentor().instrument()
     
     logger.info("Langfuse + OTel 初始化完成")

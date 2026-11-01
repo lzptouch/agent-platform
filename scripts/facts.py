@@ -19,17 +19,22 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-BACKEND = REPO / "backend"
-sys.path.insert(0, str(BACKEND))
+#: **旧 Python 后端已退场**（design/16 §11.10 · P8-04）→ 不再有 `backend/` 路径。
+BACKEND = REPO / "backend"  # 仅保留常量，历史脚本引用时不报错
 
 FACTS: dict = {}
 
 
 # ---------------------------------------------------------------- API
 def collect_api() -> None:
-    from app.main import app
-
-    spec = app.openapi()
+    # **改造要点（design/16 §11.10 · P8-04）**：改读**冻结的 OpenAPI 契约**
+    # （`contract/openapi.json`）—— 旧后端退场后不再从运行中的应用取。
+    spec_path = REPO / "contract" / "openapi.json"
+    if not spec_path.exists():
+        FACTS["api"] = {"path_count": 0, "operation_count": 0, "operations": [],
+                        "tag_count": 0}
+        return
+    spec = json.loads(spec_path.read_text(encoding="utf-8"))
     paths = spec.get("paths", {})
     ops: list[dict] = []
     for path, methods in sorted(paths.items()):
@@ -52,31 +57,47 @@ def collect_api() -> None:
 
 # ---------------------------------------------------------------- DB
 def collect_db() -> None:
-    from app.db.models import Base
+    """**冻结 DDL** 解析出的表清单（`contract/tables.sql`）。
 
+    **改造要点（design/16 §11.10 · P8-04）**：SQLAlchemy 元数据不可用
+    （旧后端退场）→ 改为解析契约冻结的 DDL —— 这本来就是「被测对象必须
+    等于的基准」，比从运行中的 ORM 取更稳定。
+    """
     tables = []
-    for name, table in sorted(Base.metadata.tables.items()):
-        tables.append({
-            "name": name,
-            "columns": len(table.columns),
-            "indexes": len(table.indexes),
-            "constraints": len(table.constraints),
-            "column_names": [c.name for c in table.columns],
-        })
+    ddl_path = REPO / "contract" / "tables.sql"
+    if ddl_path.exists():
+        text = ddl_path.read_text(encoding="utf-8")
+        for match in re.finditer(
+            r"(?is)CREATE TABLE\s+(?:IF NOT EXISTS\s+)?[\"\`]?(\w+)[\"\`]?\s*\((.*?)\n\s*\)\s*;",
+            text,
+        ):
+            name, body = match.group(1), match.group(2)
+            cols = [
+                c.strip()
+                for c in re.split(r",\s*(?=\n)", body)
+                if c.strip() and not re.match(
+                    r"(?i)^(PRIMARY KEY|FOREIGN KEY|UNIQUE|CHECK|CONSTRAINT)\b", c.strip()
+                )
+            ]
+            tables.append({
+                "name": name,
+                "columns": len(cols),
+                "indexes": 0,
+                "constraints": 0,
+                "column_names": [
+                    re.match(r'^[\"\`]?(\w+)', c).group(1)  # type: ignore[union-attr]
+                    for c in cols
+                ],
+            })
+        tables.sort(key=lambda t: t["name"])
 
-    versions = []
-    mig_dir = BACKEND / "app" / "db" / "migrations" / "versions"
-    for f in sorted(mig_dir.glob("*.py")):
-        if f.name.startswith("__"):
-            continue
-        text = f.read_text(encoding="utf-8")
-        rev = re.search(r'^revision\s*=\s*["\']([^"\']+)', text, re.M)
-        down = re.search(r'^down_revision\s*=\s*["\']([^"\']+)', text, re.M)
-        versions.append({
-            "file": f.name,
-            "revision": rev.group(1) if rev else None,
-            "down_revision": down.group(1) if down else None,
-        })
+    # **改造要点（design/16 §11.10 · P8-04）**：Alembic 迁移链已退场，
+    # 改为记录 TS 侧的迁移机制（`__migrations` + 基线 DDL）。
+    versions = [{
+        "file": "baseline-sql.ts",
+        "revision": "0000_baseline",
+        "down_revision": None,
+    }]
 
     FACTS["db"] = {
         "table_count": len(tables),
@@ -91,10 +112,12 @@ def collect_db() -> None:
 def collect_modules() -> None:
     out = {}
     for group, base in (
-        ("backend/app", BACKEND / "app"),
-        ("backend/tests", BACKEND / "tests"),
-        ("frontend/web", REPO / "frontend" / "web" / "vue-element-plus" / "src"),
-        ("frontend/desktop", REPO / "frontend" / "desktop" / "src"),
+        # **改造要点（design/16 §11.10 · P8-04）**：旧 Python 后端退场，
+        # 规模统计改为「TS 后端 + Vue 渲染层 + Electron 壳 + 根级 E2E」。
+        ("apps/server", REPO / "apps" / "server" / "src"),
+        ("apps/server/tests", REPO / "apps" / "server" / "tests"),
+        ("apps/ui", REPO / "apps" / "ui" / "src"),
+        ("apps/desktop", REPO / "apps" / "desktop" / "src"),
         ("tests", REPO / "tests"),
     ):
         files, lines = 0, 0
@@ -114,48 +137,72 @@ def collect_modules() -> None:
 
 # ---------------------------------------------------------------- 配置
 def collect_config() -> None:
-    from app.core.config import settings
+    """**TS 后端**的配置字段清单。
 
-    fields = {}
-    for name in dir(settings):
-        if name.startswith("_"):
-            continue
-        val = getattr(settings, name, None)
-        if callable(val):
-            continue
-        fields[name] = type(val).__name__
-    FACTS["config"] = {"count": len(fields), "fields": sorted(fields)}
+    **改造要点（design/16 §11.10 · P8-04）**：旧 Python 后端退场后，
+    不再能 ``from app.core.config import settings`` → 改为解析 TS 侧的
+    `Settings` 接口字段（`apps/server/src/shared/config.ts`）。
+    """
+    src = (REPO / "apps" / "server" / "src" / "shared" / "config.ts").read_text(
+        encoding="utf-8"
+    )
+    body = src.split("export interface Settings", 1)[-1].split("\n}", 1)[0]
+    fields = sorted(set(re.findall(r"(?m)^\s{2}(readonly\s+)?([a-z_][a-z0-9_]*)\??:", body)))
+    FACTS["config"] = {"count": len(fields), "fields": fields}
 
 
 # ---------------------------------------------------------------- 事件类型
 def collect_events() -> None:
-    src = (BACKEND / "app" / "services" / "agent_service.py").read_text(encoding="utf-8")
-    types = sorted(set(re.findall(r'"type":\s*"([a-z_]+)"', src)))
-    FACTS["events"] = {"count": len(types), "types": types}
+    """**冻结契约**里的事件类型清单（`contract/events.json`）。
+
+    **改造要点（design/16 §11.10 · P8-04）**：改读契约冻结产物，
+    不再从（已退场的）Python 源码里正则提取。
+    """
+    path = REPO / "contract" / "events.json"
+    if not path.exists():
+        FACTS["events"] = {"count": 0, "types": []}
+        return
+    data = json.loads(path.read_text(encoding="utf-8"))
+    events = data.get("agentEvents", [])
+    types = sorted(
+        e.get("name", "") if isinstance(e, dict) else str(e) for e in events
+    )
+    FACTS["events"] = {
+        "count": len(types),
+        "types": types,
+        "sse_endpoints": [e.get("endpoint", "") for e in data.get("sse", [])],
+    }
 
 
 # ---------------------------------------------------------------- 工具
 def collect_tools() -> None:
-    src = (BACKEND / "app" / "services" / "tool_registry.py").read_text(encoding="utf-8")
-    names = sorted(set(re.findall(r'"name":\s*"([a-z_]+)"', src)))
+    src = (
+        REPO / "apps" / "server" / "src" / "domain" / "tools" / "registry.ts"
+    ).read_text(encoding="utf-8")
+    names = sorted(set(re.findall(r'(?<![\w"])name:\s*"([a-z0-9_]+)"', src)))
     FACTS["tools"] = {"count": len(names), "names": names}
 
 
 # ---------------------------------------------------------------- MCP
 def collect_mcp() -> None:
-    from app.services.mcp_manager import MCPManager
+    # **改造要点（design/16 §11.10 · P8-04）**：MCP 服务清单改从 TS 源码提取。
+    mcp_dir = REPO / "apps" / "server" / "src" / "mcp" / "servers"
+    src = "\n".join(
+        p.read_text(encoding="utf-8") for p in sorted(mcp_dir.glob("*.ts"))
+    ) if mcp_dir.exists() else ""
 
-    reg = MCPManager.SERVER_REGISTRY
+    reg = sorted(set(re.findall(r'(?<![\w"])name:\s*"([a-z0-9_]+)"', src)))
     FACTS["mcp"] = {
         "builtin_count": len(reg),
-        "builtin": sorted(reg),
+        "builtin": reg,
         "transports": ["stdio", "sse", "http"],
     }
 
 
 # ---------------------------------------------------------------- 前端 API 封装
 def collect_frontend() -> None:
-    src = REPO / "frontend" / "web" / "vue-element-plus" / "src"
+    # **改造要点（design/16 §11.10 · P8-04）**：前端已迁入 `apps/ui/`。
+    src = REPO / "apps" / "ui" / "src"
     api = src / "api" / "index.ts"
     text = api.read_text(encoding="utf-8") if api.exists() else ""
     exports = sorted(set(re.findall(r"export const (\w+)\s*=", text)))

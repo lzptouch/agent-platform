@@ -1,203 +1,185 @@
 # agent
 
 整合 **5 条能力链**（Skill / MCP / RAG / Web Research / Deep Research）的 Agent 平台。
-前后端分离：**`backend/`（FastAPI）** 与 **`frontend/`（Vue 3 + Vite）** 为同级独立项目。
+
+> **交付形态**：**一个桌面软件**（Electron 壳 + 内嵌 TypeScript 后端 sidecar）。
+> **单一运行时**：Node（不再需要 Python / Docker / 手动起服务）。
+> **改造依据**：`doc/design/16-桌面一体化改造方案与实施计划.md`
+
+---
+
+## 目录结构
 
 ```
 agent/
-├── backend/                 # FastAPI 后端（Python 3.10~3.12）
-│   ├── app/                 #   应用代码（api / services / mcp / schemas / core）
-│   ├── skills/              #   6 个 Agent Skill
-│   ├── data/                #   运行时数据（outputs / pdf / milvus.db / logs）
-│   ├── tests/               #   40 个 pytest 用例
-│   ├── scripts/             #   RAG 入库脚本
-│   ├── notebooks/           #   教学 notebook
-│   ├── requirements.txt / pyproject.toml
-│   ├── .env(.example)       #   密钥配置
-│   └── README.md            #   后端详细文档
+├── apps/
+│   ├── desktop/             # 桌面壳（Electron 33 主进程 + utilityProcess 编排 sidecar）
+│   │   └── src/{main,preload,shared}
+│   ├── server/              # ★ TS 后端（Fastify 5 · Drizzle · better-sqlite3）
+│   │   ├── src/
+│   │   │   ├── http/        #   app / routes / middleware / sse / static / bootstrap
+│   │   │   ├── domain/      #   agent run tools scheduler research skill team
+│   │   │   │                #   exec security workspace rag web accounting
+│   │   │   ├── db/          #   schema / client / migrate
+│   │   │   ├── mcp/         #   manager / transport / servers
+│   │   │   ├── workers/     #   沙箱（Node 必备 + Python 可选）
+│   │   │   ├── runtime/     #   Python 运行时管理 / Skill 安装
+│   │   │   └── shared/      #   config errors logger types llm
+│   │   └── tests/           #   vitest（契约 + 数据层 + 领域语义）
+│   └── ui/                  # 桌面渲染层（Vue 3 + Vite + Element Plus + Pinia）
 │
-├── frontend/                # 默认前端（唯一实现）+ 桌面壳
-│   ├── web/vue-element-plus/#   Vue 3 + TS + Vite + Element Plus + Pinia + Router
-│   ├── desktop/             #   桌面壳（Electron 主进程 + 内嵌 FastAPI sidecar）
-│   ├── scripts/             #   build-frontend.mjs（构建 → frontend/dist）/ smoke.mjs
-│   └── dist/                #   【生成物】后端 StaticFiles 托管的静态产物
-│
-├── doc/                     # 文档集（analysis / knowledge / deployment）
-├── deploy/                  # 容器化部署资产 + 部署操作手册
-└── docker-compose.yml       # 主编排：backend + web(nginx)
+├── skills/                  # 6 个内置 Agent Skill
+├── contract/                # ★ 契约冻结产物（只读）
+│   ├── openapi.json         #   98 路径 / 126 操作
+│   ├── events.json          #   26 事件 + 4 条 SSE 协议
+│   ├── errors.json          #   错误码枚举 + HTTP 映射
+│   └── tables.sql           #   22 表 DDL
+├── baseline/features.csv    # ★ 功能基线清单（185 项 · 唯一「功能一致」判据）
+├── doc/                     # 文档集（analysis / design / knowledge / testing / test-runs）
+├── scripts/                 # 构建 / 校验 / 生成脚本
+│   ├── ui/                  #   build-frontend.mjs / smoke.mjs / ui_probe
+│   ├── build-desktop.mjs    #   一条命令打包
+│   └── verify-desktop-package.mjs
+├── tests/                   # 根级 E2E（desktop / packaged / visual）
+└── deploy/                  # 桌面端发布手册
 ```
 
-> 前端曾是多实现（Web×3 + 桌面×2 + 小程序×3 + Android×2 + iOS×2 + macOS×2 + 鸿蒙×1）集合，
-> 已收敛为唯一默认实现 **`frontend/web/vue-element-plus`**。
+---
 
 ## 快速开始
 
-### 后端（端口 8000）
+### 开发态
 
 ```bash
-cd backend
-uv venv .venv --python 3.11
-# Windows：uv pip install --python .venv/Scripts/python.exe -r requirements.txt
-# Linux/macOS：uv pip install --python .venv/bin/python -r requirements.txt
-cp .env.example .env   # 填入 DASHSCOPE_API_KEY（必需）/ LLM_API_KEY（DeepSeek，必需）
-                       # 可选：BOCHA_API_KEY 或 SERPER_API_KEY（深度研究链路的检索引擎）
-                       # 可选：AGENT_API_KEY（Web 形态最小鉴权；留空 = 不启用）
-# Windows：.venv/Scripts/python.exe -m scripts.ingest_data   # RAG 入库（真实 PDF → Milvus）
-# Windows：.venv/Scripts/python.exe -m app.main
+# 安装依赖
+cd apps/server && npm install && cd ../..
+cd apps/ui && npm install && cd ../..
+cd apps/desktop && npm install && cd ../..
+
+# 三进程
+cd apps/server && npm run dev        # TS 后端（AGENT_PORT=18040）
+cd apps/ui && npm run dev            # Vite（5185，proxy /api → 18040）
+cd apps/desktop && npm start         # Electron 壳
 ```
 
-> **绑定地址与端口只由 `.env` 的 `HOST` / `PORT` 决定**（P1-10）。
-> `python -m app.main` 是**统一启动入口**——此前各文档用
-> `uvicorn app.main:app --host 0.0.0.0 --port 8000` 启动，绕过了配置，
-> 导致「默认只监听回环」形同虚设，且端口与前端 dev proxy 目标不一致。
-> - `HOST` 默认 `127.0.0.1`（只监听回环，单机自用的安全默认）；要对外提供服务请**显式**改为 `0.0.0.0`。
-> - `PORT` 必须与 `frontend/web/vue-element-plus/vite.config.ts` 的 `server.proxy['/api'].target` 一致（当前 `18040`）。
-
-### 前端（开发模式，端口 5185）
+### 打包
 
 ```bash
-cd frontend/web/vue-element-plus
-npm install
-npm run dev            # 打开 http://localhost:5185（/api 代理到 vite.config.ts 的 target，当前 18040）
+# ⚠️ 第一步必做：生成双 ABI 原生模块（Node 137 + Electron 130）
+node scripts/rebuild-native.mjs
+
+# 第二步：一条命令完成前端 → 后端 → 暂存 → 壳 → 安装包
+node scripts/build-desktop.mjs --platform mac --arch arm64 --publish never
+
+# 第三步：打包态自检
+node scripts/verify-desktop-package.mjs
 ```
 
-> 前端 dev 代理目标由 `frontend/web/vue-element-plus/vite.config.ts` 的 `server.proxy['/api'].target` 决定（当前 `http://127.0.0.1:18040`）。开发时请让后端跑在该端口，或按需修改 target 指向后端实际端口。
+产物在 `apps/desktop/release/`（macOS arm64 dmg **125MB** / zip；另有 x64 版本）。
+详见 [`deploy/README.md`](deploy/README.md)（**发布手册**：前置条件、体积预算、实机验收清单、常见问题）。
 
-### 前端（生产模式，单端口 = 后端端口）
+### 测试
 
 ```bash
-node frontend/scripts/build-frontend.mjs   # 产出 frontend/dist
-# 后端检测到 frontend/dist 后自动托管：http://127.0.0.1:<PORT>/
+cd apps/server && npm test       # TS 后端 vitest   → 69 passed（5 文件）
+cd apps/ui && npm test           # 前端 vitest       → 102 passed（20 文件）
+cd apps/desktop && npm test      # 桌面壳 vitest     → 62 passed（11 文件）
+
+# 接口冒烟（35 端点 / 38 断言）
+AGENT_DESKTOP_TOKEN=<token> node scripts/ui/smoke.mjs http://127.0.0.1:<port>
+
+# 大模型端到端（Playwright 驱动真实安装包；需 .env 里的密钥）
+cd tests/e2e && npm install && npx playwright install chromium && node llm-e2e.mjs
 ```
 
-> 端口同 `.env` 的 `PORT`（当前 `18040`）。
-
-## 5 条能力链
-
-| 链 | 能力 | 密钥 |
+| 门禁 | 命令 | 作用 |
 | --- | --- | --- |
-| Skill | 6 Skill + 本地代码执行 + Agent 循环（OpenAI 兼容 function calling） | `DASHSCOPE_API_KEY` |
-| MCP | 3 个 stdio MCP Server（天气/搜索/小红书）+ 静态反射 | 天气免 Key；搜索需 `SERPER_API_KEY` |
-| RAG | PDF → DashScope `text-embedding-v3` API → Milvus Lite（BM25+稠密混合检索）→ DeepSeek 带 `[n]` 引用 | `DASHSCOPE_API_KEY` + `LLM_API_KEY` |
-| Web Research | Serper + 多线程爬虫 + Chroma 召回 + GPT 引用卡片 | `SERPER_API_KEY` + `OPENAI_API_KEY`（可选） |
-| **Deep Research** | **Orchestrator-Workers 多智能体 + OODA 子循环 + 质量评分迭代 + 报告落盘**（迁移自 deep_research） | `BOCHA_API_KEY`（推荐）或 `SERPER_API_KEY`（自动降级） |
+| 契约闸门 1~4 | `cd apps/server && npx vitest run tests/` | 路径/操作 · 事件/SSE · 表 DDL · 响应形状 · 功能基线 |
+| 文档一致性 / 数字 / 追溯 | `python3 scripts/check_doc_{consistency,numbers,traceability}.py` | 文档不得与代码脱节 |
+| 前后端字段一致 | `python3 scripts/check_frontend_shape.py` | 前端读的字段后端必须给 |
+| 与改造前响应键一致 | `node scripts/dump_response_keys.mjs` + `python3 scripts/check_python_parity.py` | 等价性逐端点比对 |
 
-> Embedding 全部走 API，**无 torch / 无本地模型**；Milvus 稀疏向量由 BM25 Function 服务端生成。
+测试记录与证据链见 [`doc/test-runs/README.md`](doc/test-runs/README.md)；
+**大模型端到端验收**见 [`doc/test-runs/P9-final/E2E-LLM-验收报告.md`](doc/test-runs/P9-final/E2E-LLM-验收报告.md)。
 
-## 测试
+---
 
-```bash
-cd backend && .venv/bin/python -m pytest tests/ -q   # 99 passed（含 WorkBuddy 扩展 59 个新用例）
-```
-
-## WorkBuddy 能力扩展（v2）
-
-对标 WorkBuddy 新增三大能力，设计文档见 `doc/workbuddy/`（00~05 + 截图）：
-
-- **对话模式 / 工作模式**：`mode=chat`（Ask，只读工具+多轮上下文）/ `mode=work`（Craft，全量工具）/ `plan_first`（Plan，先出计划、人工确认后执行）
-- **会话持久化**：SQLite（WAL）+ SQLAlchemy 2.0 + Alembic；`POST /api/v1/sessions` 管理会话，消息与运行记录落库，重启可恢复
-- **Skill 团队**：`teams` CRUD + `none/sequential/router` 三种编排策略，`POST /api/v1/teams/{id}/resolve` 预览
-- **Skill 管理闭环**：创建 / 编辑 / 启停用 / zip 导入导出（内置 Skill 只读保护，路径穿越拦截）
-- **定时任务**：`POST /api/v1/schedules`（cron / 间隔），APScheduler + DB 租约防多副本重复调度 + `(task_id, scheduled_for)` 幂等 + 失败退避 + 运行历史与事件回放（`GET /api/v1/runs/{id}/stream`）
-- **前端**：`/chat`（对话）、`/work`（工作台 + Plan 审批卡片）、`/teams`、`/schedules`、`/skills`（管理）
-
-```bash
-# 浏览器端到端测试（10 场景 + 截图，需先启动后端）
-backend/.venv/bin/python scripts/ui_browser_test.py
-```
-
-## 验证过的端到端场景
-
-- Agent + RAG：自动调 `rag_query`，带 `[7]` 引用回答电池容量（150kWh 半固态电池）
-- Agent + MCP：自动调 `mcp_weather__get_alerts`，返回真实 NWS 加州预警
-- Agent + reflection：plan → action → reflection → DeepSeek-r1 `reasoning_delta` 流式
-- 前端 4 链开关、工具来源着色（内置青 / MCP 紫 / RAG 绿 / Web 橙）、引用卡片、思考过程流式
-- **Skill 可选**：前端多选（全选 / 清空），仅选中的 Skill 注入 system prompt；`skills=[]` 表示不加载任何 Skill
-- **Deep Research**：`POST /api/v1/research` → 后台线程池执行 → SSE 进度流 → 报告与 `tasks.json` 落盘，重启可恢复
-
-
-## 深度研究链路（第 5 链）
-
-```bash
-# 提交任务
-curl -X POST http://127.0.0.1:8000/api/v1/research \
-  -H 'Content-Type: application/json' \
-  -d '{"task":"2026 年新能源汽车市场竞争格局","max_workers":4,"max_iterations":3}'
-
-# 查看进度 / 报告
-curl http://127.0.0.1:8000/api/v1/research/<task_id>
-curl http://127.0.0.1:8000/api/v1/research/<task_id>/result
-curl -N http://127.0.0.1:8000/api/v1/research/<task_id>/stream   # SSE
-```
-
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| GET | `/api/v1/research/health` | 链路健康（检索提供方 / 任务数） |
-| POST | `/api/v1/research` | 提交任务（无检索 Key 时**立即失败**并给出原因） |
-| GET | `/api/v1/research` | 任务列表 |
-| GET | `/api/v1/research/{id}` | 任务状态 + 进度 |
-| GET | `/api/v1/research/{id}/result` | 报告（未完成 202） |
-| GET | `/api/v1/research/{id}/stream` | SSE 进度流 |
-| DELETE | `/api/v1/research/{id}` | 删除任务（运行中 400） |
-
-**落盘结构**：
+## 架构
 
 ```
-data/research/
-├── tasks.json              # 任务记录（重启恢复，运行中任务标记为中断）
-└── <task_id>/
-    ├── report_YYYYmmdd_HHMMSS.md
-    └── meta_YYYYmmdd_HHMMSS.json
+┌──────────────────────────────────────────────────────────────────┐
+│ Agent Desktop (Electron 33)                                      │
+│  ┌─────────────────────┐        ┌────────────────────────────┐  │
+│  │ 主进程（壳）          │        │ 渲染进程（Vue 3，apps/ui） │  │
+│  │ · 单实例 / 托盘 / 热键 │        │  api → '/api/v1' 同源      │  │
+│  │ · utilityProcess 编排  │        │  EventSource SSE           │  │
+│  └──────────┬──────────┘        └────────────▲───────────────┘  │
+│             │ utilityProcess.fork()            │ http 127.0.0.1 │
+│             ▼                                   │                │
+│  ┌──────────────────────────────────────────────┴──────────────┐ │
+│  │ Node Sidecar（TS 后端 · Fastify 5）                           │ │
+│  │  http/  domain/  db/  mcp/  workers/  runtime/  shared/       │ │
+│  └─────────────────────────────────────────────────────────────┘ │
+│        │                │                │              │         │
+│        ▼                ▼                ▼              ▼         │
+│   userData/data/    vectors/          LLM/Search API   内置 Skill/ │
+│   app.db + outputs  chunks.db                          （只读）    │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
-## Docker 部署（对外提供服务形态）
+### 实测结果（2026-11-01）
 
-除了上面的直启开发态，已提供完整的容器化部署配置，全部文件都在本仓库内：
+| 套件 | 改造前 | 改造后 | 差异 |
+| --- | ---: | ---: | --- |
+| 后端全量 | 692 / 3 skip / 0 fail | **692 / 3 skip / 0 fail** | **0** ✅ |
+| 前端 vitest | 102 | **102** | **0** ✅（业务代码 0 改动） |
+| 桌面壳 vitest | 60 | **62** | +2 |
+| 接口冒烟 | 37/38 | **38/38** | +1 转绿 |
+| **大模型端到端** | —（改造前无此套件） | **20/20** | 新增 |
+| 差异台账 | — | equivalent 10 · waived 6 · **defect 0** | ✅ |
 
-```
-docker-compose.yml                  # 主编排：backend + web(nginx)
-.dockerignore
-deploy/
-├── README.md                       # 架构分析 / 部署步骤 / 排错 / 实测记录
-├── 部署文件分析与操作手册.md         # 文件全景 / 两条部署路线 / 验收清单 / 排错速查
-├── backend/Dockerfile              # 后端镜像（含 playwright chromium）
-├── backend/entrypoint.sh
-├── frontend/Dockerfile             # 前端多阶段构建：node build → nginx 运行
-├── nginx/nginx.conf
-├── nginx/conf.d/agent.conf# 静态托管 + /api 反代 + SSE 支持
-└── docker-compose.milvus.yml       # 可选：独立 Milvus 集群（etcd + minio + milvus）
-```
+**大模型能力实测**：问「中国的首都是哪里」→ 答「北京」（首字 522ms）；追问能记住上下文；
+RAG 真实 PDF 入库 → 混合检索命中 1 条（Embedding `text-embedding-v3`，维度 1024）；
+13 个功能页零渲染错误、零白屏。
 
-三步启动：
+### 关键设计约束（与改造前保持一致）
 
-```bash
-cp backend/.env.example backend/.env    # 填入 DASHSCOPE_API_KEY / LLM_API_KEY / BOCHA_API_KEY 等
-docker compose build
-docker compose up -d
-```
-
-访问：<http://localhost:8080/>（Nginx 对外唯一入口：`/` 静态前端，`/api/v1/*` 反代到后端，
-`/docs` 为 Swagger）。对外端口可用 `HOST_HTTP_PORT=80 docker compose up -d` 修改。
-
-向量库默认用嵌入式 Milvus Lite（`data/milvus.db`），数据统一落在命名卷 `agent-data`；
-需要正式版 Milvus 时叠加覆盖文件即可：
-
-```bash
-docker compose -f docker-compose.yml -f deploy/docker-compose.milvus.yml up -d
-docker compose exec backend python -m scripts.ingest_data   # 重新入库
-```
-
-详细内容见 [`deploy/README.md`](deploy/README.md)（架构与操作）与
-[`deploy/部署文件分析与操作手册.md`](deploy/部署文件分析与操作手册.md)（文件全景 + 逐步操作 + 验收清单）。
-
-## 文档
-
-项目文档集统一在 [`doc/`](./doc/)：
-
-| 目录 | 内容 |
+| 项 | 值 |
 | --- | --- |
-| `doc/analysis/` | 模块 / 接口 / 链路 / 一致性 / 可观测 / 高并发 / 部署 / 测试 / 代码规范 / 功能覆盖矩阵 / deepResearch 整合分析 |
-| `doc/knowledge/` | Skill 注册表 / MCP 协议 / 多智能体架构 / 质量评分 / Milvus Lite / Vue3+SSE / Langfuse |
-| `doc/deployment/` | 部署导览与总览 / 故障排查手册 |
+| HTTP 契约 | 98 路径 / 126 操作（`contract/openapi.json` 冻结） |
+| Agent 事件 | 26 种（`contract/events.json` 冻结） |
+| 业务表 | 22 张（`contract/tables.sql` 冻结） |
+| SSE 端点 | 4 条（含 `Last-Event-ID` 续传、`max_events` 有界模式） |
+| 握手协议 | `AGENT_DESKTOP_READY {json}`（**不变**） |
+| Agent 循环上限 | `max_iterations = 20` |
+| 执行限额 | CPU 60s / 内存 1GB / 句柄 256 / 单文件 64MB / 输出 64KB / 墙钟 180s |
+| 调度 | 交互槽 4 与调度槽 2 **分离**；`(task_id, scheduled_for)` 幂等 |
+| 权限 | 三态 allow/ask/deny；ask 超时 120s 按 deny；「仅此一次」不落库 |
+| RAG | 混合检索权重 sparse 0.7 / dense 1.0 / limit 10；BM25 k1=1.5 b=0.75 |
 
-文档总索引见 [`doc/README.md`](./doc/README.md)（四分区：`analysis` 当前事实 / `design` 目标形态 / `plan` 待办 / `knowledge` 通用原理）。
+---
+
+## 配置
+
+| 变量 | 默认 | 说明 |
+| --- | --- | --- |
+| `DASHSCOPE_API_KEY` | 空 | **主 LLM + Embedding**（缺失则 Agent 运行与 RAG 不可用） |
+| `LLM_API_KEY` | 空 | 备选 LLM（DeepSeek 等，用于 planner / RAG 问答） |
+| `BOCHA_API_KEY` / `SERPER_API_KEY` | 空 | 深度研究 / Web Research 检索（任一即可） |
+| `GAODE_API_KEY` | 空 | 高德地图（MCP weather Server 的地理编码） |
+| `AGENT_PORT` | 0（OS 分配） | 开发态固定后端端口 |
+
+> 桌面态由壳写入 `<userData>/config.json`（首启设置向导），不依赖 `.env`。
+
+---
+
+## 相关文档
+
+| 文档 | 内容 |
+| --- | --- |
+| `doc/design/16-桌面一体化改造方案与实施计划.md` | 本次改造的完整方案与实施计划 |
+| `doc/design/03-桌面壳与后端进程编排设计.md` | sidecar 进程编排（`utilityProcess`） |
+| `doc/design/14-测试与发布策略.md` | 测试分层与发布门禁 |
+| `doc/test-runs/README.md` | 测试记录总索引 |
+| `baseline/features.csv` | 功能基线清单（185 项） |
+| `deploy/README.md` | 桌面端发布手册 |

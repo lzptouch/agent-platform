@@ -1,0 +1,246 @@
+{
+  "agentEvents": [
+    {
+      "name": "skills_selected",
+      "payloadFields": [
+        "skills",
+        "all_skills",
+        "total"
+      ],
+      "desc": "Skill 选择结果"
+    },
+    {
+      "name": "system_prompt",
+      "payloadFields": [
+        "content"
+      ],
+      "desc": "下发的 system prompt"
+    },
+    {
+      "name": "user_input",
+      "payloadFields": [
+        "content"
+      ],
+      "desc": "用户输入回显"
+    },
+    {
+      "name": "round_start",
+      "payloadFields": [
+        "round"
+      ],
+      "desc": "一轮开始"
+    },
+    {
+      "name": "round_input",
+      "payloadFields": [
+        "messages"
+      ],
+      "desc": "本轮上下文摘要"
+    },
+    {
+      "name": "model_text",
+      "payloadFields": [
+        "content"
+      ],
+      "desc": "模型文本增量"
+    },
+    {
+      "name": "reasoning_delta",
+      "payloadFields": [
+        "content"
+      ],
+      "desc": "推理增量"
+    },
+    {
+      "name": "tool_call",
+      "payloadFields": [
+        "tool_name",
+        "tool_input"
+      ],
+      "desc": "工具调用发起"
+    },
+    {
+      "name": "tool_result",
+      "payloadFields": [
+        "tool_name",
+        "result"
+      ],
+      "desc": "工具执行结果"
+    },
+    {
+      "name": "files",
+      "payloadFields": [
+        "files"
+      ],
+      "desc": "产物文件清单"
+    },
+    {
+      "name": "error",
+      "payloadFields": [
+        "content"
+      ],
+      "desc": "错误"
+    },
+    {
+      "name": "done",
+      "payloadFields": [
+        "status"
+      ],
+      "desc": "运行终态"
+    },
+    {
+      "name": "reflection_start",
+      "payloadFields": [
+        "mode"
+      ],
+      "desc": "反思循环开始"
+    },
+    {
+      "name": "plan",
+      "payloadFields": [
+        "actions"
+      ],
+      "desc": "计划（规划阶段）"
+    },
+    {
+      "name": "reflection_plan",
+      "payloadFields": [
+        "actions",
+        "round"
+      ],
+      "desc": "反思计划"
+    },
+    {
+      "name": "meta",
+      "payloadFields": [
+        "run_id",
+        "session_id",
+        "mode",
+        "team",
+        "resolved_skills"
+      ],
+      "desc": "运行元信息"
+    },
+    {
+      "name": "approval_required",
+      "payloadFields": [
+        "run_id",
+        "plan"
+      ],
+      "desc": "等待计划审批"
+    },
+    {
+      "name": "notice",
+      "payloadFields": [
+        "content"
+      ],
+      "desc": "提示"
+    },
+    {
+      "name": "interrupted",
+      "payloadFields": [
+        "content",
+        "phase"
+      ],
+      "desc": "运行被取消"
+    },
+    {
+      "name": "steer_injected",
+      "payloadFields": [
+        "instructions",
+        "modes"
+      ],
+      "desc": "steer 指令已注入"
+    },
+    {
+      "name": "plan_replaced",
+      "payloadFields": [
+        "content"
+      ],
+      "desc": "计划被替换"
+    },
+    {
+      "name": "context_compressed",
+      "payloadFields": [
+        "mode",
+        "before_tokens",
+        "after_tokens",
+        "saved_tokens",
+        "sections",
+        "summary"
+      ],
+      "desc": "上下文强摘要压缩"
+    },
+    {
+      "name": "context_trimmed",
+      "payloadFields": [
+        "dropped",
+        "tokens",
+        "ratio"
+      ],
+      "desc": "上下文裁剪"
+    },
+    {
+      "name": "busy",
+      "payloadFields": [
+        "content",
+        "limit"
+      ],
+      "desc": "并发预算已满"
+    },
+    {
+      "name": "memory_item",
+      "payloadFields": [
+        "tool",
+        "input",
+        "result"
+      ],
+      "desc": "记忆工具调用"
+    },
+    {
+      "name": "loop_detected",
+      "payloadFields": [],
+      "desc": "循环指纹检测（前端联合缺失，design R12）"
+    }
+  ],
+  "sse": [
+    {
+      "endpoint": "POST /api/v1/agent/run",
+      "headers": [
+        "Cache-Control: no-cache",
+        "X-Accel-Buffering: no",
+        "Connection: keep-alive"
+      ],
+      "resume_field": null,
+      "note": "事件名在 payload.type 字段"
+    },
+    {
+      "endpoint": "GET /api/v1/runs/{id}/stream",
+      "headers": [
+        "Cache-Control: no-cache",
+        "X-Accel-Buffering: no",
+        "Connection: keep-alive"
+      ],
+      "resume_field": "Last-Event-ID"
+    },
+    {
+      "endpoint": "GET /api/v1/research/{id}/stream",
+      "headers": [
+        "Cache-Control: no-cache",
+        "X-Accel-Buffering: no",
+        "Connection: keep-alive"
+      ],
+      "resume_field": "Last-Event-ID"
+    },
+    {
+      "endpoint": "GET /api/v1/desktop/events",
+      "headers": [
+        "Cache-Control: no-cache",
+        "X-Accel-Buffering: no",
+        "Connection: keep-alive"
+      ],
+      "resume_field": "after_id",
+      "note": "max_events 有界模式"
+    }
+  ]
+}

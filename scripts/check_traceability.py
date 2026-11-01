@@ -87,10 +87,17 @@ def _plan_index() -> tuple[dict[str, list[str]], dict[str, str]]:
 def _code_refs() -> dict[str, list[str]]:
     """测试代码里直接引用需求编号的（优先采信）。"""
     out: dict[str, list[str]] = {}
-    for root in (REPO_ROOT / "backend" / "tests", REPO_ROOT / "tests"):
+    # **改造要点（design/16 §11.10 · P8-04）**：旧 Python 后端退场 →
+    # 扫描范围改为「TS 后端测试 + 根级 E2E 测试」。
+    for root in (
+        REPO_ROOT / "apps" / "server" / "tests",
+        REPO_ROOT / "tests",
+    ):
         if not root.exists():
             continue
-        for path in sorted(root.rglob("*.py")):
+        for path in sorted(
+            list(root.rglob("*.py")) + list(root.rglob("*.ts"))
+        ):
             try:
                 text = path.read_text(encoding="utf-8", errors="ignore")
             except OSError:

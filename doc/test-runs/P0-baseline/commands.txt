@@ -1,0 +1,51 @@
+# P0 · 改造前全量基线测试复现命令（**历史记录**）
+#
+# ⚠️ **已不可复现**：旧 Python 后端（`backend/`）已按 design/16 §11.10 · P8-04
+#    **退场并删除** → 下列命令所依赖的 `backend/.venv` 与 `backend/app` 均已不存在。
+#    本文件保留**当时的执行方式**备查；**实际结果归档**见同目录 `raw/`。
+#
+# 每条命令可独立复制执行（工作目录：仓库根）
+
+# ---------- B-1 后端单元/集成（pytest 695 例） ----------
+cd backend
+.venv/bin/python -m pytest tests/ -q --tb=short -p no:cacheprovider \
+  --timeout=90 --timeout-method=thread \
+  --json-report --json-report-file=../doc/test-runs/P0-baseline/raw/pytest-report.json
+cd ..
+
+# ---------- B-2 前端单测（vitest 102 例） ----------
+cd apps/ui
+npx vitest run --reporter=verbose
+cd ..
+
+# ---------- B-3 桌面壳单测（vitest 60 例） ----------
+cd apps/desktop
+npx vitest run --reporter=verbose
+cd ..
+
+# ---------- B-5 接口冒烟（35 端点 / 38 断言） ----------
+# 启动后端
+cd backend
+AGENT_DATA_DIR=/tmp/agent-pybase \
+  SKILLS_DIR=$(pwd)/../skills \
+  .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 18100
+# 另开一个终端
+node scripts/ui/smoke.mjs http://127.0.0.1:18100
+cd ..
+
+# ---------- B-6 契约导出（98 路径 / 126 操作 + 22 表 DDL） ----------
+cd backend
+.venv/bin/python -c "
+from app.main import app
+import json
+spec = app.openapi()
+json.dump(spec, open('../contract/openapi.json','w'), ensure_ascii=False, indent=2, sort_keys=True)
+print('paths', len(spec['paths']))
+"
+cd ..
+
+# ---------- B-7 环境与结果归档 ----------
+python3 scripts/gen_env.py
+python3 scripts/gen_results.py \
+  doc/test-runs/P0-baseline/raw/pytest-report.json \
+  doc/test-runs/P0-baseline/results.csv P0

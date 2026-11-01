@@ -1,7 +1,7 @@
 # Orchestrator-Workers 多智能体架构（扩充版）
 
 > - **整理日期**：2026-09-15（首发 2026-09-15 扩充）
-> - **依据项目**：`apps/agent/backend/app/services/research/`（Deep Research 链路）+ `doc/knowledge/04_质量评分迭代与任务持久化.md`
+> - **依据项目**：`apps/agent/apps/server/src/domain/research/`（Deep Research 链路）+ `doc/knowledge/04_质量评分迭代与任务持久化.md`
 > - **资料来源**：Anthropic《Building Effective Agents》(2024-12) + Anthropic《How we built our multi-agent research system》(2025-06) + OpenAI Deep Research + AutoGen + CrewAI + LangGraph Supervisor
 
 ---
@@ -71,7 +71,7 @@ Observe（观察检索结果）→ Orient（理解+分析）→ Decide（决定�
 ## 2.1 Research 链路架构（实测）
 
 ```
-backend/app/services/research/
+apps/server/src/domain/research/
 ├── __init__.py
 ├── llm_client.py          # LLM 客户端封装
 ├── search_client.py        # 博查搜索客户端

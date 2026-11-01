@@ -1,8 +1,20 @@
 # Milvus Lite 本地化与 BM25 混合检索（扩充版）
 
 > - **整理日期**：2026-09-15（首发 2026-09-15 扩充）
-> - **依据项目**：`apps/agent/backend/app/services/rag/` + `config.py`
+> - **依据项目**：`apps/agent/apps/server/src/domain/rag/` + `config.py`
 > - **资料来源**：Milvus 官方文档 + Milvus Lite + BM25 论文 + RRF 论文 + Qdrant + Weaviate + LanceDB
+
+
+> **📌 状态横幅（2026-11-01 · 单运行时改造后）**：本文正文的**能力语义**仍然有效，
+> 但其中三处**实现载体**已变化，读时请按此对照：
+>
+> | 文中写法 | 现状 |
+> | --- | --- |
+> | **Milvus Lite**（`milvus_store.py` / `milvus-lite`） | → **进程内 SQLite 向量层**（`apps/server/src/domain/rag/store.ts`）：`data/vectors/chunks.db`；BM25 由进程内倒排实现。**两腿结构与融合策略不变** |
+> | **Web 形态**（浏览器直连 / CORS / API Key 鉴权） | → **已退场**（design/16 §9.1）。桌面端渲染进程与 sidecar **同源** → 无跨域、无 API Key；鉴权改为「**Host 白名单 + 一次性 nonce + 会话 Cookie**」 |
+> | **Docker Compose / 容器化** | → **已退场**。发布物只有**桌面安装包**（dmg / nsis / AppImage）；发布手册见 `deploy/README.md` |
+>
+> **后端路径**同时由 `backend/app/**`（Python）迁到 `apps/server/src/**`（TypeScript）。
 
 ---
 
@@ -290,7 +302,7 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
 ## 4.1 P1-1：Milvus Lite 升级到 Milvus Standalone（生产）
 
 ```yaml
-# docker-compose.yml
+# docker-compose.yml（★ 2026-11-01 已退场：Milvus Lite 与容器化一并移除）
 services:
   milvus:
     image: milvusdb/milvus:v2.5-latest
@@ -391,7 +403,7 @@ class Reranker:
 | [10] | 官方文档 | LanceDB | https://lancedb.github.io/lancedb/ | 2026-09-15 |
 | [11] | OSS 库 | sentence-transformers (CrossEncoder) | https://github.com/UKPLab/sentence-transformers | 2026-09-15 |
 | [12] | 官方文档 | DashScope Embedding | https://help.aliyun.com/zh/model-studio/developer-reference/use-embedding-by-calling-api | 2026-09-15 |
-| [13] | 同源文档 | `apps/finance-report/backend/app/tools/rag_search.py` | 内存 RAG 对比 | 2026-09-15 |
+| [13] | 同源文档 | `apps/finance-report/apps/server/src/tools/rag_search.ts` | 内存 RAG 对比 | 2026-09-15 |
 | [14] | 同源文档 | `apps/industry-research/doc/analysis/04_五端一致性.md` | PG + Milvus Server | 2026-09-15 |
 
 ---

@@ -1,6 +1,6 @@
 # Agent 执行引擎与事件协议
 
-> - **依据代码**：`backend/app/services/agent_service.py`、`tool_registry.py`、`backend/app/api/v1/agent.py`、`backend/app/services/run_executor.py`、`backend/app/services/run_service.py`、`backend/app/schemas/agent.py`、`backend/app/services/agent/`、`backend/app/services/exec/`
+> - **依据代码**：`apps/server/src/domain/agent/`、`tool_registry.py`、`apps/server/src/http/routes/agent.ts`、`apps/server/src/domain/run/executor.ts`、`apps/server/src/domain/run/service.ts`、`apps/server/src/http/routes/agent.ts`、`apps/server/src/domain/agent/`、`apps/server/src/domain/exec/`
 > - **资料来源**：2026-10-29 逐文件复核
 > - **整理日期**：2026-10-29
 > - **对应基线**：commit `7385dcd` + 工作区未提交改动
@@ -32,9 +32,9 @@ flowchart TB
 | **① 主循环** | 默认 | `_stream_loop()`（`agent_service.py:396-604`） | OpenAI 兼容 function calling，**非流式** |
 | **② 计划审批** | `mode=work` + `plan_first=true` + 无已批准 plan | `_generate_plan()`（`agent_service.py:313-337`） | `app.core.llm.chat(..., json_mode=True)` |
 | **③ 反思循环** | `enable_reflection=true`（**仅 work**） | `_stream_reflection()`（`agent_service.py:609-694`） | 规划/反思用 JSON mode；最终回答用 **stream=True** |
-| **④ 旧范式** | `POST /api/v1/agent/chat` | `backend/app/services/agent/service.py` | DeepSeek JSON-mode + `reasoning_content` 流式 |
+| **④ 旧范式** | `POST /api/v1/agent/chat` | `apps/server/src/domain/agent/service.ts` | DeepSeek JSON-mode + `reasoning_content` 流式 |
 
-> **路径 ④ 与前三条是并列关系，不是「旧版本」**：`backend/app/services/agent/` 5 个文件（`planner` / `reflection` / `answer` / `tools` / `service`）构成一条**独立的 plan→action→reflection→answer 实现**，其提示词硬编码「星辰电动 ES9 汽车销售助手」，仅被 `POST /api/v1/agent/chat` 使用（`backend/app/api/v1/agent.py:132`）。
+> **路径 ④ 与前三条是并列关系，不是「旧版本」**：`apps/server/src/domain/agent/` 5 个文件（`planner` / `reflection` / `answer` / `tools` / `service`）构成一条**独立的 plan→action→reflection→answer 实现**，其提示词硬编码「星辰电动 ES9 汽车销售助手」，仅被 `POST /api/v1/agent/chat` 使用（`apps/server/src/http/routes/agent.ts:132`）。
 
 ## 二、主循环逐步
 
@@ -127,10 +127,10 @@ sequenceDiagram
 
 **run 状态枚举**（唯一的状态常量集）：
 
-- 终态 `TERMINAL_STATUSES = {"success","failed","skipped","interrupted","rejected"}` — `backend/app/services/run_service.py:23`
+- 终态 `TERMINAL_STATUSES = {"success","failed","skipped","interrupted","rejected"}` — `apps/server/src/domain/run/service.ts:23`
 - 中间态：`queued` / `running` / `awaiting_approval` — `run_service.py:151,159,171,181`
 
-**子进程限额命中枚举**（与 Agent 循环无关，属 exec 边界）：`ExecResult.limit_hit ∈ {"", "output", "timeout", "cpu", "memory"}` — `backend/app/services/exec/limits.py:79`
+**子进程限额命中枚举**（与 Agent 循环无关，属 exec 边界）：`ExecResult.limit_hit ∈ {"", "output", "timeout", "cpu", "memory"}` — `apps/server/src/domain/exec/limits.ts:79`
 
 ---
 
@@ -233,11 +233,11 @@ stateDiagram-v2
 
 | 动作 | 实现 | 位置 |
 |---|---|---|
-| 产出计划并挂起 | `agent_service.py:295-300` 发 `approval_required` + `done(status="awaiting_approval")` 后 `return` | `backend/app/services/agent_service.py` |
-| 状态置 `awaiting_approval` | `run_service.save_plan()` | `backend/app/services/run_service.py:154-159` |
-| 批准 | `run_service.approve_plan()` → `status="queued"`；随后 `executor.resume_after_approval()` 起 **daemon 线程**续跑 | `backend/app/services/run_service.py:161-174`；`backend/app/services/run_executor.py:441-523` |
-| 拒绝 | `run_service.reject_run()` → `status="rejected"` | `backend/app/services/run_service.py:176-186` |
-| API | `POST /api/v1/agent/runs/{run_id}/approve`（可带 `edited_plan`）/ `reject`（带 `reason`）；非待审批状态返回 **409** | `backend/app/api/v1/agent.py:104-129` |
+| 产出计划并挂起 | `agent_service.py:295-300` 发 `approval_required` + `done(status="awaiting_approval")` 后 `return` | `apps/server/src/domain/agent/` |
+| 状态置 `awaiting_approval` | `run_service.save_plan()` | `apps/server/src/domain/run/service.ts:154-159` |
+| 批准 | `run_service.approve_plan()` → `status="queued"`；随后 `executor.resume_after_approval()` 起 **daemon 线程**续跑 | `apps/server/src/domain/run/service.ts:161-174`；`apps/server/src/domain/run/executor.ts:441-523` |
+| 拒绝 | `run_service.reject_run()` → `status="rejected"` | `apps/server/src/domain/run/service.ts:176-186` |
+| API | `POST /api/v1/agent/runs/{run_id}/approve`（可带 `edited_plan`）/ `reject`（带 `reason`）；非待审批状态返回 **409** | `apps/server/src/http/routes/agent.ts:104-129` |
 
 **恢复执行时**，`plan` 被拼进 system prompt 的「## 已批准的执行计划」段（`agent_service.py:274-279`）。
 
@@ -279,12 +279,12 @@ stateDiagram-v2
 | 25 | `memory_item` | `tool` `input` `result`（截 3000） | `agent_service.py:724` | 反思分支（**内部事件，不 yield 给前端**） |
 | 26 | `loop_detected` | `tool_name` `repeat` `content` | `agent_service.py`（循环检测命中时） | 循环内（连续相同调用 ≥3 次） |
 
-**前端 TypeScript 联合类型 `AgentEvent` 覆盖 24 个成员**（`frontend/web/vue-element-plus/src/api/types.ts:495-`）——**缺 `context_trimmed`、`loop_detected`、`memory_item`**（后三者在后端产生但前端联合类型未收录）。
+**前端 TypeScript 联合类型 `AgentEvent` 覆盖 24 个成员**（`apps/ui/src/api/types.ts:495-`）——**缺 `context_trimmed`、`loop_detected`、`memory_item`**（后三者在后端产生但前端联合类型未收录）。
 `plan` 与 `reflection_plan` 共用同一个 `PlanEv`（其 `type` 字段是联合 `'plan' | 'reflection_plan'`）。
 
 ### 5.2 事件负载格式
 
-SSE 帧格式为 `data: {json}\n\n`（`backend/app/api/v1/agent.py:64`），响应头：
+SSE 帧格式为 `data: {json}\n\n`（`apps/server/src/http/routes/agent.ts:64`），响应头：
 
 ```
 Content-Type: text/event-stream
@@ -293,11 +293,11 @@ X-Accel-Buffering: no
 Connection: keep-alive
 ```
 
-**DB tail 流**额外注入 `seq` 字段：`payload = {"type": item.type, "seq": item.seq, **item.payload}` — `backend/app/api/v1/runs.py:80`。
+**DB tail 流**额外注入 `seq` 字段：`payload = {"type": item.type, "seq": item.seq, **item.payload}` — `apps/server/src/http/routes/runs.ts:80`。
 
 ### 5.3 中断与 steer 机制（S4）
 
-**控制面**（`backend/app/services/run_executor.py`）：
+**控制面**（`apps/server/src/domain/run/executor.ts`）：
 
 | 组件 | 位置 | 说明 |
 |---|---|---|
@@ -338,7 +338,7 @@ Connection: keep-alive
 
 ### 5.4 落库顺序
 
-`RunExecutor` 把同一批事件写入 `run_events` 表，**批量 20 条 / 2 秒**（`backend/app/services/run_executor.py:27-28,286-291,340-341`），带 `seq` 递增。前端因此可以用 `after_seq` 游标续订。
+`RunExecutor` 把同一批事件写入 `run_events` 表，**批量 20 条 / 2 秒**（`apps/server/src/domain/run/executor.ts:27-28,286-291,340-341`），带 `seq` 递增。前端因此可以用 `after_seq` 游标续订。
 
 ### 5.5 反思分支的事件差异
 
@@ -358,7 +358,7 @@ Connection: keep-alive
 
 ## 六、`exec/` 执行扩展子包
 
-`backend/app/services/exec/` 共 8 个模块，**4 个真正生效、2 个部分生效、2 个纯备胎**：
+`apps/server/src/domain/exec/` 共 8 个模块，**4 个真正生效、2 个部分生效、2 个纯备胎**：
 
 | 模块 | 职责 | 关键类 / 函数 | 是否真正生效 |
 |---|---|---|---|
@@ -368,7 +368,7 @@ Connection: keep-alive
 | `memory.py` | 三层记忆（user / workspace / project）+ 索引 + 预筛 | `memory_root:53` / `refresh_index:104` / `list_memories:145` / `write_memory:161` / `select_memories:204` / `mark_used:238` | **完全生效**。`agent_service.py:347-353` 调 `refresh_index`/`select_memories`/`mark_used`；CRUD 走 `api/v1/context.py:75-116` |
 | `accounting.py` | LLM 计量 + 成本核算 | `CallUsage:26` / `record_call:39` / `aggregate_run:74` / `run_cost_detail:97` / `cost_percentiles:130` / `Timer:149` | **完全生效**。表 `llm_calls` |
 | `roles.py` | S5 内置轻量角色常量（0 工具） | `Role:17` / `BUILTIN_ROLES:47`（`compact`/`contextSummary`/`memorySelector`）/ `get_role:72` | **不生效（占位）**。三个 Prompt **从未被送给 LLM**；真实作用是 `exec/team/roles.py:218-236 sync_builtin_roles()` 的数据源 |
-| `team/orchestrator.py` | 多 Agent 编排（parallel / sequential / review） | `TeamOrchestrator:70`（`run:87`、`_run_parallel:127`、`_run_sequential:132`、`_run_review:141`） | **不生效（未接线）**。仅被 `backend/tests/test_s6_extensions.py:257-296` 引用。运行时的「team」是 `team_service` 的 **Skill 团队**（none/sequential/router），只影响 system prompt 与 skill 选择——**两个「team」是完全不同的概念** |
+| `team/orchestrator.py` | 多 Agent 编排（parallel / sequential / review） | `TeamOrchestrator:70`（`run:87`、`_run_parallel:127`、`_run_sequential:132`、`_run_review:141`） | **不生效（未接线）**。仅被 `apps/server/tests/test_s6_extensions.py:257-296` 引用。运行时的「team」是 `team_service` 的 **Skill 团队**（none/sequential/router），只影响 system prompt 与 skill 选择——**两个「team」是完全不同的概念** |
 | `team/blackboard.py` | 黑板：任务项 / 依赖图 / 就绪判定 / 环检测 / 指派 | `BoardItem:30` / `readiness:79` / `would_create_cycle:103` / `assign_by_capability:129` / `BlackboardService:166` | **仅 API 层生效**。`api/v1/extensions.py:150-179` 提供读写端点；**Agent 执行链路完全不使用黑板** |
 | `team/roles.py` | 角色 CRUD（`roles` 表为准，代码常量为回退） | `Role:37` / `RoleService:112` / `model_for_tier:103` / `sync_builtin_roles:218` | **仅 API 层生效**。角色**不参与**工具权限裁定（工具裁剪只看 `ToolProfile`） |
 | `team/messaging.py` | Agent 间消息 / 通知 + 上下文收费站 | `AgentMessage:31` / `MessageService:91` / `tollgate:171` / `build_main_context_block:187` | **仅 API 层生效**。`tollgate` 与 `build_main_context_block` 未接入运行时 |
@@ -461,27 +461,27 @@ tool(tool_call_id="call_1", content="...")
 
 | 编号 | 观察 | 证据 | 指向 |
 |---|---|---|---|
-| S-03-01 | **LLM 调用是非流式的**：`chat.completions.create()` 不带 `stream=True`，模型完整响应后才产出 `model_text`。所谓「流式」只是事件逐个下发，首 token 延迟 = 完整响应时间 | `backend/app/services/agent_service.py:502-509` | `11` §2 |
-| S-03-02 | `approval_required` 在 `agent_service` 路径**不带 `run_id`**，而前端 `ApprovalRequiredEv.run_id` 是必填字段 | `backend/app/services/agent_service.py:298`；`frontend/web/vue-element-plus/src/api/types.ts` | `12` §2 |
-| S-03-03 | `done` 事件带 `status` 字段（`awaiting_approval`），前端 `DoneEv` 未声明也不消费 | `backend/app/services/agent_service.py:299` | `12` §2 |
-| S-03-04 | `tool_result` 的 `references`（RAG）与 `reference_cards`（Web）是两个不同字段，前端分别消费，语义不统一 | `backend/app/services/agent_service.py:571-589` | `06` §6 |
-| S-03-05 | `system_prompt` 事件把**完整 system prompt** 发给前端（含工具清单与 Skill 清单），信息量随工具数增长 | `backend/app/services/agent_service.py:287` | `12` §2 |
-| S-03-06 | 达到迭代上限走 `for...else`，与「无 tool_calls 正常结束」的 `break` 路径区分依赖语言细节 | `backend/app/services/agent_service.py:429,596-597` | `12` §2 |
-| S-03-07 | `enable_reflection` 在 chat 模式下不是报错而是「发 notice 后静默降级」，用户可能不知道反思没生效 | `backend/app/services/agent_service.py:290-292` | `12` §2 |
-| S-03-08 | 计划生成失败一律降级为单步计划「执行任务」，用户看到的计划可能与预期完全不符 | `backend/app/services/agent_service.py:337` | `12` §2 |
-| S-03-09 | `resume_after_approval()` 用 daemon 线程恢复执行，**进程退出即丢失**该执行 | `backend/app/services/run_executor.py:441-523` | `08` §5 |
-| S-03-10 | 工具异常一律数据化返回给 LLM，Agent 会把错误字符串当作「工具结果」继续推理，可能产生幻觉式补救 | `backend/app/services/tool_registry.py:225-288` | `12` §2 |
-| S-03-11 | **取消后 run 终态被覆盖为 `failed`**（`interrupted` 事件同时设了 `error`） | `backend/app/services/run_executor.py:360-361` | `12` §2.1 |
-| S-03-12 | **审批恢复执行不接受 steer/cancel**——`resume_after_approval` 未传 `steer_hook`/`cancel_hook` | `backend/app/services/run_executor.py:470-483` | `12` §2.1 |
-| S-03-13 | **`tool_load` 不回写 loader** → 延迟装载实际上只有「目录 + 一次性 schema」，第二轮起工具集不再变化 | `backend/app/services/tool_registry.py:446-470`；`agent_service.py:266` | `12` §2.2 |
-| S-03-14 | **九段摘要只有 2 段有真实内容**：`agent_service.py:477-480` 只传了 `intent` 与 `current`，其余 7 段由模板填成「（未记录）」/「（无）」，**无任何 LLM 参与摘要生成** | `backend/app/services/agent_service.py:477-480`；`exec/context.py:250-259` | `12` §2.2 |
-| S-03-15 | `exec/context.py` 的 `COMPACT_THRESHOLD`/`SUMMARY_THRESHOLD` 与 `should_compact`/`should_summarize` 是**未被引用的重复定义** | `backend/app/services/exec/context.py:30-31,87-92` | `12` §2.3 |
-| S-03-16 | `exec/truncate_tool_result()` 只被测试用，实际截断是硬编码 `[:8000]` | `backend/app/services/exec/context.py:159` | `12` §2.3 |
-| S-03-17 | `exec/roles.py` 的三个内置角色 Prompt 从未被送给 LLM | `backend/app/services/exec/roles.py:36-45` | `12` §2.2 |
-| S-03-18 | `exec/team/orchestrator.py` 的 `TeamOrchestrator` 未接入运行时，仅测试引用 | `backend/app/services/exec/team/orchestrator.py:70` | `12` §2.2 |
-| S-03-19 | 前端 `AgentEvent` 联合类型缺 `busy` 与 `memory_item` 两个事件 | `frontend/web/vue-element-plus/src/api/types.ts:483-505` | `06` §6 |
-| S-03-20 | `chat_log_*.json` 调试日志路径仍在，但由 `settings.save_chat_log`（默认 `False`）关闭 | `backend/app/services/agent_service.py:779`；`core/config.py:94` | `12` §2.3 |
-| S-03-21 | 反思分支与 plan-first 分支**都不受迭代上限约束** | `backend/app/services/agent_service.py:295-300,609-694` | `12` §2.1 |
+| S-03-01 | **LLM 调用是非流式的**：`chat.completions.create()` 不带 `stream=True`，模型完整响应后才产出 `model_text`。所谓「流式」只是事件逐个下发，首 token 延迟 = 完整响应时间 | `apps/server/src/domain/agent/:502-509` | `11` §2 |
+| S-03-02 | `approval_required` 在 `agent_service` 路径**不带 `run_id`**，而前端 `ApprovalRequiredEv.run_id` 是必填字段 | `apps/server/src/domain/agent/:298`；`apps/ui/src/api/types.ts` | `12` §2 |
+| S-03-03 | `done` 事件带 `status` 字段（`awaiting_approval`），前端 `DoneEv` 未声明也不消费 | `apps/server/src/domain/agent/:299` | `12` §2 |
+| S-03-04 | `tool_result` 的 `references`（RAG）与 `reference_cards`（Web）是两个不同字段，前端分别消费，语义不统一 | `apps/server/src/domain/agent/:571-589` | `06` §6 |
+| S-03-05 | `system_prompt` 事件把**完整 system prompt** 发给前端（含工具清单与 Skill 清单），信息量随工具数增长 | `apps/server/src/domain/agent/:287` | `12` §2 |
+| S-03-06 | 达到迭代上限走 `for...else`，与「无 tool_calls 正常结束」的 `break` 路径区分依赖语言细节 | `apps/server/src/domain/agent/:429,596-597` | `12` §2 |
+| S-03-07 | `enable_reflection` 在 chat 模式下不是报错而是「发 notice 后静默降级」，用户可能不知道反思没生效 | `apps/server/src/domain/agent/:290-292` | `12` §2 |
+| S-03-08 | 计划生成失败一律降级为单步计划「执行任务」，用户看到的计划可能与预期完全不符 | `apps/server/src/domain/agent/:337` | `12` §2 |
+| S-03-09 | `resume_after_approval()` 用 daemon 线程恢复执行，**进程退出即丢失**该执行 | `apps/server/src/domain/run/executor.ts:441-523` | `08` §5 |
+| S-03-10 | 工具异常一律数据化返回给 LLM，Agent 会把错误字符串当作「工具结果」继续推理，可能产生幻觉式补救 | `apps/server/src/domain/tools/registry.ts:225-288` | `12` §2 |
+| S-03-11 | **取消后 run 终态被覆盖为 `failed`**（`interrupted` 事件同时设了 `error`） | `apps/server/src/domain/run/executor.ts:360-361` | `12` §2.1 |
+| S-03-12 | **审批恢复执行不接受 steer/cancel**——`resume_after_approval` 未传 `steer_hook`/`cancel_hook` | `apps/server/src/domain/run/executor.ts:470-483` | `12` §2.1 |
+| S-03-13 | **`tool_load` 不回写 loader** → 延迟装载实际上只有「目录 + 一次性 schema」，第二轮起工具集不再变化 | `apps/server/src/domain/tools/registry.ts:446-470`；`agent_service.py:266` | `12` §2.2 |
+| S-03-14 | **九段摘要只有 2 段有真实内容**：`agent_service.py:477-480` 只传了 `intent` 与 `current`，其余 7 段由模板填成「（未记录）」/「（无）」，**无任何 LLM 参与摘要生成** | `apps/server/src/domain/agent/:477-480`；`exec/context.py:250-259` | `12` §2.2 |
+| S-03-15 | `exec/context.py` 的 `COMPACT_THRESHOLD`/`SUMMARY_THRESHOLD` 与 `should_compact`/`should_summarize` 是**未被引用的重复定义** | `apps/server/src/domain/exec/context.ts:30-31,87-92` | `12` §2.3 |
+| S-03-16 | `exec/truncate_tool_result()` 只被测试用，实际截断是硬编码 `[:8000]` | `apps/server/src/domain/exec/context.ts:159` | `12` §2.3 |
+| S-03-17 | `exec/roles.py` 的三个内置角色 Prompt 从未被送给 LLM | `apps/server/src/domain/team/roles.ts:36-45` | `12` §2.2 |
+| S-03-18 | `exec/team/orchestrator.py` 的 `TeamOrchestrator` 未接入运行时，仅测试引用 | `apps/server/src/domain/team/orchestrator.ts:70` | `12` §2.2 |
+| S-03-19 | 前端 `AgentEvent` 联合类型缺 `busy` 与 `memory_item` 两个事件 | `apps/ui/src/api/types.ts:483-505` | `06` §6 |
+| S-03-20 | `chat_log_*.json` 调试日志路径仍在，但由 `settings.save_chat_log`（默认 `False`）关闭 | `apps/server/src/domain/agent/:779`；`core/config.py:94` | `12` §2.3 |
+| S-03-21 | 反思分支与 plan-first 分支**都不受迭代上限约束** | `apps/server/src/domain/agent/:295-300,609-694` | `12` §2.1 |
 
 ---
 
@@ -532,5 +532,5 @@ grep -n "_steer_queue\|_cancel_flags\|request_cancel\|request_steer\|_steer_hook
 grep -rn "TeamOrchestrator\|exec.roles\|get_role" app/ | grep -v "exec/team\|exec/roles.py"
 
 # 前端事件类型（应为 22 个联合成员）
-sed -n '483,506p' ../frontend/web/vue-element-plus/src/api/types.ts
+sed -n '483,506p' ../apps/ui/src/api/types.ts
 ```

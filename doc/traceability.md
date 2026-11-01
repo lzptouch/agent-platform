@@ -17,7 +17,7 @@
 | F-SEC-09 | 命令策略升级为规则集，串联命令逐段判定 | ✅ | SEC-01<br>SEC-WS-04<br>SEC-RULE-01<br>SEC-DANGER-01<br>SEC-WS-05… | — |
 | F-SEC-10 | 禁止路径（凭据/配置/系统目录）直接拒绝且不询问 | ✅ | SEC-01<br>SEC-WS-04<br>SEC-RULE-01<br>SEC-DANGER-01<br>SEC-WS-05… | — |
 | F-SEC-11 | 工作区可写根白名单全形态默认开启 | ✅ | SEC-WS-05 | P1-09 |
-| F-SEC-12 | 沙箱能力**诚实化**：探测真实能力并返回可读说明 | ✅ | code:backend/tests/test_s2_security.py | — |
+| F-SEC-12 | 沙箱能力**诚实化**：探测真实能力并返回可读说明 | ✅ | SEC-01<br>SEC-WS-04<br>SEC-RULE-01<br>SEC-DANGER-01<br>SEC-WS-05… | — |
 | F-SEC-13 | 临时决定带过期时间；会话级决定不落库 | ✅ | SEC-01<br>SEC-WS-04<br>SEC-RULE-01<br>SEC-DANGER-01<br>SEC-WS-05… | — |
 | F-SEC-14 | 动作级 JSONL 审计（时间/run/工具/参数/裁决/规则/耗时） | ✅ | SEC-01<br>SEC-WS-04<br>SEC-RULE-01<br>SEC-DANGER-01<br>SEC-WS-05… | — |
 | F-SEC-15 | 写前自动快照 + 快照预算 + LRU 清理 | ✅ | SEC-SCAN-01<br>SEC-SCAN-02<br>SEC-SCAN-03 | P2-07 |
@@ -67,15 +67,15 @@
 | F-SCH-02 | 结果推送三通道（本地通知 / IM Bot / 移动端） | ✅ | SCH-DELIVERY-01<br>SCH-DELIVERY-02<br>SCH-IDEM-01<br>SCH-IDEM-02 | P3-02 |
 | F-SCH-03 | 推送失败重试 3 次（指数退避），不影响任务状态 | ✅ | SCH-DELIVERY-01<br>SCH-DELIVERY-02<br>SCH-IDEM-01<br>SCH-IDEM-02 | P3-02 |
 | F-SCH-04 | 后端通知**实装**（现状只有存储字段） | ✅ | SCH-DELIVERY-01<br>SCH-DELIVERY-02<br>SCH-IDEM-01<br>SCH-IDEM-02 | P3-02 |
-| F-SCH-05 | MCP 支持 STDIO / SSE / HTTP | ✅ | EXT-MCP-POOL-01<br>EXT-MCP-POOL-02<br>OBS-METRIC-01<br>code:backend/tests/test_mcp_sse_config.py | P2-01 |
-| F-SCH-06 | MCP 配置两级合并（用户级 + 项目级） | ✅ | EXT-MCP-POOL-01<br>EXT-MCP-POOL-02<br>OBS-METRIC-01<br>code:backend/tests/test_mcp_sse_config.py | P2-01 |
+| F-SCH-05 | MCP 支持 STDIO / SSE / HTTP | ✅ | EXT-MCP-POOL-01<br>EXT-MCP-POOL-02<br>OBS-METRIC-01 | P2-01 |
+| F-SCH-06 | MCP 配置两级合并（用户级 + 项目级） | ✅ | EXT-MCP-POOL-01<br>EXT-MCP-POOL-02<br>OBS-METRIC-01 | P2-01 |
 | F-SCH-07 | MCP 状态灯真实反映连接状态与失败原因 | ✅ | SCH-LEASE-01<br>SCH-01<br>SCH-14<br>OPS-CLASSIFY-01<br>OPS-MARKER-01… | — |
 | F-SCH-08 | MCP 连接复用，不每次调用新建会话 | ✅ | EXT-MCP-POOL-01<br>EXT-MCP-POOL-02<br>OBS-METRIC-01 | P2-01 |
 | F-SCH-09 | 错过触发的补偿语义明确（窗口内补跑、窗口外记 skipped） | ✅ | SCH-LEASE-01<br>SCH-01<br>SCH-14<br>OPS-CLASSIFY-01<br>OPS-MARKER-01… | — |
 | F-SCH-10 | 结构化日志 + 请求 ID + 基础指标 | ✅ | SCH-LEASE-01<br>SCH-01<br>SCH-14<br>OPS-CLASSIFY-01<br>OPS-MARKER-01… | 04 |
 | F-SCH-11 | 无人值守时 `ask` 降级为 deny 并记录 | ✅ | SCH-LEASE-01<br>SCH-01<br>SCH-14<br>OPS-CLASSIFY-01<br>OPS-MARKER-01… | — |
 | F-UX-01 | 三栏工作台（左任务 / 中对话 / 右结果） | ✅ | UX-FIRSTTOKEN-01<br>UX-WSPICKER-01<br>DOM-04<br>DOM-08<br>DOM-01… | — |
-| F-UX-02 | 结果区四视图（产物/文件/变更/浏览器） | ✅ | code:backend/tests/test_browser_view.py | 02 |
+| F-UX-02 | 结果区四视图（产物/文件/变更/浏览器） | ✅ | UX-FIRSTTOKEN-01<br>UX-WSPICKER-01<br>DOM-04<br>DOM-08<br>DOM-01… | 02 |
 | F-UX-03 | 权限选择器统一为三态，与后端同源 | ✅ | UX-FIRSTTOKEN-01<br>UX-WSPICKER-01<br>DOM-04<br>DOM-08<br>DOM-01… | — |
 | F-UX-04 | 权限审批卡（含影响预览与倒计时） | ✅ | UX-FIRSTTOKEN-01<br>UX-WSPICKER-01<br>DOM-04<br>DOM-08<br>DOM-01… | — |
 | F-UX-05 | 每轮耗时三态展示 | ✅ | UX-FIRSTTOKEN-01<br>UX-WSPICKER-01<br>DOM-04<br>DOM-08<br>DOM-01… | — |
@@ -93,7 +93,7 @@
 | F-ENG-04 | 桌面事件桥贯通（后端 SSE → 壳 → 渲染） | ✅ | DESK-EVENT-01<br>code:tests/desktop/test_event_bridge.py | P5-11 |
 | F-ENG-05 | 后端状态变化广播到渲染进程 | ✅ | OPS-CLASSIFY-01<br>OPS-MARKER-01<br>OPS-DOCNUM-01<br>OPS-TRACE-01<br>API-UPLOAD-01… | — |
 | F-ENG-06 | 孤儿 sidecar 可被回收 | ✅ | DESK-ORPHAN-01 | P5-12 |
-| F-ENG-07 | 桌面壳引入 vitest 并有单测 | ✅ | code:backend/tests/test_desktop_guard.py | — |
+| F-ENG-07 | 桌面壳引入 vitest 并有单测 | ✅ | OPS-CLASSIFY-01<br>OPS-MARKER-01<br>OPS-DOCNUM-01<br>OPS-TRACE-01<br>API-UPLOAD-01… | — |
 | F-ENG-08 | e2e 脚本跨平台可执行 | ✅ | OPS-CLASSIFY-01<br>OPS-MARKER-01<br>OPS-DOCNUM-01<br>OPS-TRACE-01<br>API-UPLOAD-01… | — |
 | F-ENG-09 | 只存在一套 Agent 主循环 | ✅ | OPS-CLASSIFY-01<br>OPS-MARKER-01<br>OPS-DOCNUM-01<br>OPS-TRACE-01<br>API-UPLOAD-01… | — |
 | F-ENG-10 | 配置只有一处真相，无 import 期快照、无全局可变配置 | ✅ | OPS-CLASSIFY-01<br>OPS-MARKER-01<br>OPS-DOCNUM-01<br>OPS-TRACE-01<br>API-UPLOAD-01… | — |
@@ -102,5 +102,5 @@
 | F-ENG-13 | 基线数字与实测一致（含既有失败已修） | ✅ | code:tests/test_p5_batch.py | 05 |
 | F-ENG-14 | 遗留无运行环境组件移出 `app/` | ✅ | OPS-CLASSIFY-01<br>OPS-MARKER-01<br>OPS-DOCNUM-01<br>OPS-TRACE-01<br>API-UPLOAD-01… | 05 |
 
-**统计**：✅ 92 / ⏳ 3 / ⛔ 0（共 95 条）；已实现需求的用例覆盖率 100.0%（其中**条目级**（plan 推导链）33 条、**域级**（testing/00 用例族）59 条）。
+**统计**：✅ 92 / ⏳ 3 / ⛔ 0（共 95 条）；已实现需求的用例覆盖率 100.0%（其中**条目级**（plan 推导链）30 条、**域级**（testing/00 用例族）62 条）。
 
