@@ -25,7 +25,6 @@ agent/
 │   │   │   ├── workers/     #   沙箱（Node 必备 + Python 可选）
 │   │   │   ├── runtime/     #   Python 运行时管理 / Skill 安装
 │   │   │   └── shared/      #   config errors logger types llm
-│   │   └── tests/           #   vitest（契约 + 数据层 + 领域语义）
 │   └── ui/                  # 桌面渲染层（Vue 3 + Vite + Element Plus + Pinia）
 │
 ├── skills/                  # 6 个内置 Agent Skill
@@ -35,12 +34,17 @@ agent/
 │   ├── errors.json          #   错误码枚举 + HTTP 映射
 │   └── tables.sql           #   22 表 DDL
 ├── baseline/features.csv    # ★ 功能基线清单（185 项 · 唯一「功能一致」判据）
-├── doc/                     # 文档集（analysis / design / knowledge / testing / test-runs）
-├── scripts/                 # 构建 / 校验 / 生成脚本
-│   ├── ui/                  #   build-frontend.mjs / smoke.mjs / ui_probe
-│   ├── build-desktop.mjs    #   一条命令打包
-│   └── verify-desktop-package.mjs
-├── tests/                   # 根级 E2E（desktop / packaged / visual）
+├── doc/                     # 文档集（analysis / design / knowledge）
+├── scripts/                 # 构建 / 生成脚本（build-desktop / rebuild-native / gen_*）
+│   └── ui/                  #   build-frontend.mjs
+├── tests/                   # ★ 全部测试统一归拢（2026-11-02）
+│   ├── unit/                #   各端单测（server / desktop / ui，vitest）
+│   ├── desktop|packaged|visual/  # 根级 E2E（pytest + Playwright）
+│   ├── e2e/                 #   大模型端到端（Node + Playwright 驱动安装包）
+│   ├── scripts/             #   校验 / 验证脚本（check_* / verify_* / smoke / ui_probe）
+│   ├── docs/                #   测试文档（testing/00 计划 · test-runs/ 证据链 · traceability）
+│   ├── report/              #   测试报告与截图（runs / archive / shots）
+│   └── common/              #   公共骨架（harness / report / classify）
 └── deploy/                  # 桌面端发布手册
 ```
 
@@ -72,7 +76,7 @@ node scripts/rebuild-native.mjs
 node scripts/build-desktop.mjs --platform mac --arch arm64 --publish never
 
 # 第三步：打包态自检
-node scripts/verify-desktop-package.mjs
+node tests/scripts/verify-desktop-package.mjs
 ```
 
 产物在 `apps/desktop/release/`（macOS arm64 dmg **125MB** / zip；另有 x64 版本）。
@@ -86,7 +90,7 @@ cd apps/ui && npm test           # 前端 vitest       → 102 passed（20 文�
 cd apps/desktop && npm test      # 桌面壳 vitest     → 62 passed（11 文件）
 
 # 接口冒烟（35 端点 / 38 断言）
-AGENT_DESKTOP_TOKEN=<token> node scripts/ui/smoke.mjs http://127.0.0.1:<port>
+AGENT_DESKTOP_TOKEN=<token> node tests/scripts/ui/smoke.mjs http://127.0.0.1:<port>
 
 # 大模型端到端（Playwright 驱动真实安装包；需 .env 里的密钥）
 cd tests/e2e && npm install && npx playwright install chromium && node llm-e2e.mjs
@@ -94,13 +98,13 @@ cd tests/e2e && npm install && npx playwright install chromium && node llm-e2e.m
 
 | 门禁 | 命令 | 作用 |
 | --- | --- | --- |
-| 契约闸门 1~4 | `cd apps/server && npx vitest run tests/` | 路径/操作 · 事件/SSE · 表 DDL · 响应形状 · 功能基线 |
-| 文档一致性 / 数字 / 追溯 | `python3 scripts/check_doc_{consistency,numbers,traceability}.py` | 文档不得与代码脱节 |
-| 前后端字段一致 | `python3 scripts/check_frontend_shape.py` | 前端读的字段后端必须给 |
-| 与改造前响应键一致 | `node scripts/dump_response_keys.mjs` + `python3 scripts/check_python_parity.py` | 等价性逐端点比对 |
+| 契约闸门 1~4 | `cd apps/server && npx vitest run`（用例在 `tests/unit/server/`） | 路径/操作 · 事件/SSE · 表 DDL · 响应形状 · 功能基线 |
+| 文档一致性 / 数字 / 追溯 | `python3 tests/scripts/check_doc_{consistency,numbers,traceability}.py` | 文档不得与代码脱节 |
+| 前后端字段一致 | `python3 tests/scripts/check_frontend_shape.py` | 前端读的字段后端必须给 |
+| 与改造前响应键一致 | `node tests/scripts/dump_response_keys.mjs` + `python3 tests/scripts/check_python_parity.py` | 等价性逐端点比对 |
 
-测试记录与证据链见 [`doc/test-runs/README.md`](doc/test-runs/README.md)；
-**大模型端到端验收**见 [`doc/test-runs/P9-final/E2E-LLM-验收报告.md`](doc/test-runs/P9-final/E2E-LLM-验收报告.md)。
+测试记录与证据链见 [`tests/docs/test-runs/README.md`](tests/docs/test-runs/README.md)；
+**大模型端到端验收**见 [`tests/docs/test-runs/P9-final/E2E-LLM-验收报告.md`](tests/docs/test-runs/P9-final/E2E-LLM-验收报告.md)。
 
 ---
 
@@ -180,6 +184,6 @@ RAG 真实 PDF 入库 → 混合检索命中 1 条（Embedding `text-embedding-v
 | `doc/design/16-桌面一体化改造方案与实施计划.md` | 本次改造的完整方案与实施计划 |
 | `doc/design/03-桌面壳与后端进程编排设计.md` | sidecar 进程编排（`utilityProcess`） |
 | `doc/design/14-测试与发布策略.md` | 测试分层与发布门禁 |
-| `doc/test-runs/README.md` | 测试记录总索引 |
+| `tests/docs/test-runs/README.md` | 测试记录总索引 |
 | `baseline/features.csv` | 功能基线清单（185 项） |
 | `deploy/README.md` | 桌面端发布手册 |

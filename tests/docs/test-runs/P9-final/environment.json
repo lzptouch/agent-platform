@@ -1,0 +1,33 @@
+{
+  "recorded_at": "2026-11-01T05:11:00.190916+00:00",
+  "git_commit": "<人工填写>",
+  "git_dirty": "true（改造进行中，未提交）",
+  "os": {
+    "platform": "darwin",
+    "version": "27.0.1",
+    "arch": "arm64"
+  },
+  "node": "v24.22.0",
+  "npm": "11.19.1",
+  "python": "已退场（P8-04）；P0/P9 回归时为 Python 3.13.16",
+  "electron": "33.4.11",
+  "zod": "3.25.76",
+  "fastify": "5.12.7",
+  "better_sqlite3": "11.10.0",
+  "data_snapshot": {
+    "app_db": "测试会话临时目录（tests/unit/server/setup.ts）",
+    "milvus_db": "3.5MB（改造后丢弃，Q4）",
+    "pdf_count": 0
+  },
+  "env_files": [
+    ".env（键名脱敏，未读取值）"
+  ],
+  "external_apis": {
+    "DASHSCOPE_API_KEY": "unset",
+    "BOCHA_API_KEY": "unset",
+    "SERPER_API_KEY": "unset",
+    "GAODE_API_KEY": "unset",
+    "OPENAI_API_KEY": "unset"
+  },
+  "phase": "P9-final"
+}

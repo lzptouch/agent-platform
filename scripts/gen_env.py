@@ -8,7 +8,7 @@ import subprocess
 from datetime import datetime, timezone
 
 ROOT = "/Users/lizhipeng/workspace/project/agent"
-RUNS = os.path.join(ROOT, "doc", "test-runs")
+RUNS = os.path.join(ROOT, "tests", "docs", "test-runs")
 
 
 def sh(cmd: str) -> str:
@@ -46,7 +46,7 @@ def collect() -> dict:
             "node -e \"console.log(require('./apps/server/node_modules/better-sqlite3/package.json').version)\""
         ),
         "data_snapshot": {
-            "app_db": "测试会话临时目录（apps/server/tests/setup.ts）",
+            "app_db": "测试会话临时目录（tests/unit/server/setup.ts）",
             "milvus_db": "3.5MB（改造后丢弃，Q4）",
             "pdf_count": 0,
         },
@@ -73,7 +73,7 @@ COMMANDS_P0 = """# P0 · 改造前全量基线测试复现命令（**历史记�
 cd backend
 .venv/bin/python -m pytest tests/ -q --tb=short -p no:cacheprovider \\
   --timeout=90 --timeout-method=thread \\
-  --json-report --json-report-file=../doc/test-runs/P0-baseline/raw/pytest-report.json
+  --json-report --json-report-file=../tests/docs/test-runs/P0-baseline/raw/pytest-report.json
 cd ..
 
 # ---------- B-2 前端单测（vitest 102 例） ----------
@@ -93,7 +93,7 @@ AGENT_DATA_DIR=/tmp/agent-pybase \\
   SKILLS_DIR=$(pwd)/../skills \\
   .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 18100
 # 另开一个终端
-node scripts/ui/smoke.mjs http://127.0.0.1:18100
+node tests/scripts/ui/smoke.mjs http://127.0.0.1:18100
 cd ..
 
 # ---------- B-6 契约导出（98 路径 / 126 操作 + 22 表 DDL） ----------
@@ -110,8 +110,8 @@ cd ..
 # ---------- B-7 环境与结果归档 ----------
 python3 scripts/gen_env.py
 python3 scripts/gen_results.py \\
-  doc/test-runs/P0-baseline/raw/pytest-report.json \\
-  doc/test-runs/P0-baseline/results.csv P0
+  tests/docs/test-runs/P0-baseline/raw/pytest-report.json \\
+  tests/docs/test-runs/P0-baseline/results.csv P0
 """
 
 COMMANDS_P9 = """# P9 · 改造后全量回归复现命令
@@ -137,7 +137,7 @@ cd ..
 #    当时的执行方式（现已不可复现，结果归档见 raw/pytest-report.json）：
 #      cd backend
 #      .venv/bin/python -m pytest tests/ -q --timeout=90 --timeout-method=thread \
-#        --json-report --json-report-file=../doc/test-runs/P9-final/raw/pytest-report.json
+#        --json-report --json-report-file=../tests/docs/test-runs/P9-final/raw/pytest-report.json
 
 # ---------- R-5 双 ABI 原生模块（Node 137 + Electron 130） ----------
 node scripts/rebuild-native.mjs
@@ -152,7 +152,7 @@ AGENT_DATA_DIR=/tmp/agent-p9 \
   node dist/main.js > /tmp/agent-p9.log 2>&1 &
 # 另开一个终端（端口取自握手行 AGENT_DESKTOP_READY）
 PORT=$(grep -o '"port":[0-9]*' /tmp/agent-p9.log | head -1 | cut -d: -f2)
-AGENT_DESKTOP_TOKEN=p9token node ../../scripts/ui/smoke.mjs "http://127.0.0.1:$PORT"
+AGENT_DESKTOP_TOKEN=p9token node ../../../tests/scripts/ui/smoke.mjs "http://127.0.0.1:$PORT"
 cd ..
 
 # ---------- R-7 桌面端集成（Electron 壳 → TS sidecar） ----------
@@ -163,7 +163,7 @@ cd ..
 # ---------- R-8 打包 + 打包态自检 ----------
 node scripts/ui/build-frontend.mjs
 node scripts/build-desktop.mjs --platform mac --arch arm64
-node scripts/verify-desktop-package.mjs
+node tests/scripts/verify-desktop-package.mjs
 
 # ---------- R-6 契约闸门（98 路径 / 126 操作零差异） ----------
 cd apps/server
@@ -172,8 +172,8 @@ cd ..
 
 # ---------- 逐用例结果 CSV ----------
 python3 scripts/gen_results.py \\
-  doc/test-runs/P9-final/raw/pytest-report.json \\
-  doc/test-runs/P9-final/results.csv P9
+  tests/docs/test-runs/P9-final/raw/pytest-report.json \\
+  tests/docs/test-runs/P9-final/results.csv P9
 """
 
 for phase, commands in (("P0-baseline", COMMANDS_P0), ("P9-final", COMMANDS_P9)):

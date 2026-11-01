@@ -161,7 +161,7 @@ F-UI-159,ui,运行成本条,apps/ui/src/components/RunCostBar.vue,视图可渲�
 F-UI-160,ui,上下文条,apps/ui/src/components/ContextBar.vue,视图可渲染 / 交互可完成（渲染进程无报错，关键断言通过）,无（纯前端）,auto:vitest,pass,raw/vitest-ui.log
 F-UI-161,ui,权限审批卡,apps/ui/src/components/PermissionCard.vue,视图可渲染 / 交互可完成（渲染进程无报错，关键断言通过）,无（纯前端）,auto:vitest,pass,raw/vitest-ui.log
 F-UI-162,ui,工作区选择器,apps/ui/src/components/WorkspacePicker.vue,视图可渲染 / 交互可完成（渲染进程无报错，关键断言通过）,无（纯前端）,auto:vitest,pass,raw/vitest-ui.log
-F-UI-163,ui,速记窗（compose 模式）,apps/ui/src/views/compose-mode.spec.ts,视图可渲染 / 交互可完成（渲染进程无报错，关键断言通过）,无（纯前端）,auto:vitest,pass,raw/vitest-ui.log
+F-UI-163,ui,速记窗（compose 模式）,tests/unit/ui/views/compose-mode.spec.ts,视图可渲染 / 交互可完成（渲染进程无报错，关键断言通过）,无（纯前端）,auto:vitest,pass,raw/vitest-ui.log
 F-UI-164,ui,MCP Server 管理视图,apps/ui/src/views/MCPView.vue,视图可渲染 / 交互可完成（渲染进程无报错，关键断言通过）,无（纯前端）,auto:vitest,pass,raw/vitest-ui.log
 F-UI-165,ui,Skill 管理视图,apps/ui/src/views/SkillsView.vue,视图可渲染 / 交互可完成（渲染进程无报错，关键断言通过）,无（纯前端）,auto:vitest,pass,raw/vitest-ui.log
 F-UI-166,ui,定时任务视图,apps/ui/src/views/SchedulesView.vue,视图可渲染 / 交互可完成（渲染进程无报错，关键断言通过）,无（纯前端）,auto:vitest,pass,raw/vitest-ui.log

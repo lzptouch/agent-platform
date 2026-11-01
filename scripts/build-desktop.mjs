@@ -179,7 +179,7 @@ async function selfCheck(opts) {
     return
   }
   log(`自检：启动打包产物并验证握手…（${path.relative(REPO_ROOT, exe)}）`)
-  await run('node', ['scripts/verify-desktop-package.mjs', exe], REPO_ROOT).catch((e) => {
+  await run('node', ['tests/scripts/verify-desktop-package.mjs', exe], REPO_ROOT).catch((e) => {
     throw new Error(`打包自检失败：${e.message}`)
   })
   log('自检：通过')

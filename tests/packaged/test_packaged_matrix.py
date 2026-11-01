@@ -1,6 +1,6 @@
 """打包产物矩阵（PAK-01~13 / PAK-16 / PAK-19）。
 
-对应 `doc/testing/00-全面测试计划.md` §4.6。既有 `scripts/verify_desktop_package.py`
+对应 `tests/docs/testing/00-全面测试计划.md` §4.6。既有 `tests/scripts/verify-desktop-package.mjs`
 只认 Windows（`release/win-unpacked` + `python.exe` + `.exe`），在 macOS/Linux 上恒为
 "未找到主程序"——**不是通过，也不是失败，而是零覆盖**。本文件把同一批断言做成
 跨平台 pytest 用例，并把"产物缺失"记为 `env_missing`（计入覆盖率缺口）而非绿。

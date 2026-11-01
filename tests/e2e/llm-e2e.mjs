@@ -7,7 +7,7 @@
  * 3. 等待大模型返回，**断言**结果符合预期；
  * 4. 逐页截图，产出 L3 视觉证据。
  *
- * **证据**：`doc/test-runs/P9-final/screenshots/*.png` + `doc/test-runs/P9-final/raw/e2e-llm.log`
+ * **证据**：`tests/docs/test-runs/P9-final/screenshots/*.png` + `tests/docs/test-runs/P9-final/raw/e2e-llm.log`
  *
  * 用法：
  *   cd apps/desktop && node ../../tests/e2e/llm-e2e.mjs
@@ -19,8 +19,8 @@ import { fileURLToPath } from 'node:url'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const REPO = path.resolve(HERE, '..', '..')
-const SHOTS = path.join(REPO, 'doc/test-runs/P9-final/screenshots')
-const RAW = path.join(REPO, 'doc/test-runs/P9-final/raw')
+const SHOTS = path.join(REPO, 'tests/docs/test-runs/P9-final/screenshots')
+const RAW = path.join(REPO, 'tests/docs/test-runs/P9-final/raw')
 
 fs.mkdirSync(SHOTS, { recursive: true })
 fs.mkdirSync(RAW, { recursive: true })

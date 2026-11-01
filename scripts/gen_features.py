@@ -155,7 +155,7 @@ VIEWS = [
     ("上下文条", "apps/ui/src/components/ContextBar.vue"),
     ("权限审批卡", "apps/ui/src/components/PermissionCard.vue"),
     ("工作区选择器", "apps/ui/src/components/WorkspacePicker.vue"),
-    ("速记窗（compose 模式）", "apps/ui/src/views/compose-mode.spec.ts"),
+    ("速记窗（compose 模式）", "tests/unit/ui/views/compose-mode.spec.ts"),
     ("MCP Server 管理视图", "apps/ui/src/views/MCPView.vue"),
     ("Skill 管理视图", "apps/ui/src/views/SkillsView.vue"),
     ("定时任务视图", "apps/ui/src/views/SchedulesView.vue"),

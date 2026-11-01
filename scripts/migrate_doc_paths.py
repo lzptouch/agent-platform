@@ -5,7 +5,7 @@
 **边界**：只改**路径与术语**，不改语义；历史文档（审计报告 / 整改计划 /
 实现交付记录）**不参与**批量替换 —— 它们记录的是「当时」的事实。
 
-**配套门禁**：`scripts/check_doc_paths.py` —— 替换完成后跑它，
+**配套门禁**：`tests/scripts/check_doc_paths.py` —— 替换完成后跑它，
 确保没有**漏网的旧路径**。
 
 用法：
@@ -72,7 +72,7 @@ PATH_MAP: list[tuple[str, str]] = [
     ("backend/app/desktop/events.py", "apps/server/src/http/events.ts"),
     ("backend/app/desktop/launcher.py", "apps/server/src/main.ts"),
     ("backend/app/services/exec/accounting.py", "apps/server/src/domain/accounting/pricing.ts"),
-    ("backend/tests/", "apps/server/tests/"),
+    ("backend/tests/", "tests/unit/server/"),
     ("backend/skills/", "skills/"),
     ("backend/.env", ".env"),
     # ---- 通用后端目录（按最长优先）----
@@ -97,7 +97,7 @@ PATH_MAP: list[tuple[str, str]] = [
     ("backend/app/workers/", "apps/server/src/workers/"),
     ("backend/app/db/", "apps/server/src/db/"),
     ("backend/app/", "apps/server/src/"),
-    ("backend/tests/conftest.py", "apps/server/tests/setup.ts"),
+    ("backend/tests/conftest.py", "tests/unit/server/setup.ts"),
     ("backend/tests", "apps/server/tests"),
     ("backend/pyproject.toml", "apps/server/package.json"),
     ("backend/requirements-dev.txt", "apps/server/package.json"),
@@ -117,7 +117,7 @@ PATH_MAP: list[tuple[str, str]] = [
     ("frontend/web/vue-element-plus/src/", "apps/ui/src/"),
     ("frontend/web/vue-element-plus/", "apps/ui/"),
     ("frontend/scripts/build-frontend.mjs", "scripts/ui/build-frontend.mjs"),
-    ("frontend/scripts/smoke.mjs", "scripts/ui/smoke.mjs"),
+    ("frontend/scripts/smoke.mjs", "tests/scripts/ui/smoke.mjs"),
     ("frontend/", "apps/"),
 ]
 
@@ -158,8 +158,8 @@ TERM_MAP: list[tuple[str, str]] = [
 HISTORICAL = {
     "doc/analysis/18_全面代码审计报告.md",
     "doc/analysis/19_二次全面审计报告.md",
-    "doc/plan/07-全面代码审计整改计划.md",
-    "doc/plan/08-二次全面审计整改计划.md",
+    # 原 doc/plan/07、08（两次审计整改计划）2026-11-01 起并入下篇附录
+    "doc/design/09-差距矩阵与整改清单.md",
     "doc/design/08-实现交付记录.md",
 }
 
@@ -192,20 +192,15 @@ CURRENT = [
     "doc/design/05-数据模型与API设计.md",
     "doc/design/06-前端界面设计.md",
     "doc/design/07-实施路线图与风险.md",
-    "doc/design/09-差距矩阵与整改清单.md",
     "doc/design/10-测试与验收策略.md",
     "doc/design/11-竞品对标与设计依据.md",
     "doc/design/13-能力演进与实现对照.md",
     "doc/design/14-测试与发布策略.md",
     "doc/design/15-目标形态与实现状态.md",
-    "doc/plan/01-正确性与安全边界.md",
-    "doc/plan/02-能力接线与扩展落地.md",
-    "doc/plan/03-调度上下文与数据一致性.md",
-    "doc/plan/04-前端契约与可观测补齐.md",
-    "doc/plan/05-测试体系与CI门禁.md",
-    "doc/plan/06-发布形态与规模化.md",
-    "doc/plan/README.md",
-    "doc/testing/00-全面测试计划.md",
+    # 原 doc/plan/01~06 与 README（2026-11-01 起）已分别并入
+    # design/04、13、05、06、10、14 与 design/09 的「历史记录」附录——
+    # 附录内容属历史事实，不再参与批量替换。
+    "tests/docs/testing/00-全面测试计划.md",
     "doc/knowledge/01_Skill注册表与四级Skill设计.md",
     "doc/knowledge/02_MCP协议原理与stdio实现.md",
     "doc/knowledge/03_Orchestrator-Workers多智能体架构.md",

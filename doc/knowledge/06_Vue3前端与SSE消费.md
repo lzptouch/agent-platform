@@ -1,151 +1,84 @@
-# Vue 3 + TypeScript 前端与 SSE 消费原理
+# Vue 3 前端与 SSE 消费
 
-> - **依据项目**：`apps/ui/`（Vue 3.5 + TS 5.7 + Element Plus 2.8 + Pinia 2.2 + Vite 6）
-> - **资料来源**：本项目代码（2026-10-26 探查）+ MDN ReadableStream / EventSource 官方 + Vue 3 官方
-> - **整理日期**：2026-10-26
-> - **范围**：前端架构形态 + SSE 流式消费原理 + 断流恢复机制
-> - **风格**：当前实现 → 原理剖析 → 业界做法对照 → 操作要点
+> **依据代码**：`apps/ui/src/`（重点 `api/client.ts`、`api/sse.ts`）（2026-11-01 复核重写）
+> **原理主题**：① 用 fetch + ReadableStream 自研 SSE 消费器；② 长任务进度流的
+> 「断流续订 + 去重 + 退避」三件套。
 
 ---
 
-# 第一部分 当前实现
+## 一、前端形态
 
-## 一、工程形态
+Vue 3 `<script setup>` + TypeScript + Vite + Element Plus + Pinia + vue-router。
+同源架构：桌面态壳直接加载 `http://127.0.0.1:<port>`（sidecar 托管 dist），
+开发态 Vite proxy 转发 `/api`——**没有跨域面**，因此 `runtimeBase` 恒为空串
+（`client.ts:35`），前端代码里没有 baseURL 切换逻辑。
 
-本项目的唯一前端实现是 `apps/ui/`：
+工程数字：19 视图 / 23 组件 / 7 store / 96 个 API 封装函数
+（口径见 `../analysis/00` §5 C11~C14）。
 
-| 维度 | 实现 |
-| --- | --- |
-| 框架 | Vue 3.5（`<script setup>` + Composition API）+ TypeScript 严格模式 |
-| 构建 | Vite 6（`vue-tsc --noEmit && vite build`） |
-| UI 库 | Element Plus 2.8 |
-| 状态 | Pinia 2.2（4 个 setup 风格 store） |
-| 路由 | Vue Router 4.4（`createWebHistory`，无守卫） |
-| HTTP | 原生 `fetch`（自研 `api/client.ts`），**无 axios** |
-| Markdown | markdown-it + DOMPurify + highlight.js |
-| 结构 | 15 视图 / 13 组件 / 2 布局 / 4 store |
+## 二、原理：为什么自研 `runSSE` 而不是 EventSource
 
-**信息架构是「双形态」**：v3 工作台（`/workspace`，任务流 + 三态模式 + 命令面板）与 admin 后台（`/admin/*`，能力管理）并存，由 localStorage 灰度开关 `__ws_v3` 决定默认入口。详见 `analysis/06_前端架构与接口契约.md`。
+EventSource 的三个硬限制在本项目全部命中：
 
-## 二、SSE 消费的最小实现
+| 限制 | 本项目的诉求 |
+|---|---|
+| 只支持 GET | 主事件流是 **POST `/agent/run`**（请求体带模式/技能/开关） |
+| 自动重连语义固定 | 续传必须走业务游标（`Last-Event-ID` / 状态回查），自动重连会重复消费 |
+| 无法读原始字节处理边界 | 需要处理多字节字符截断与坏行跳过 |
 
-前端不依赖 `EventSource`，自研 `runSSE()`（`src/api/sse.ts`）：
+fetch + `resp.body.getReader()` 拿到的是**原始字节流**，自行实现 SSE 行解析
+（`sse.ts:34-94`）：
 
-```typescript
-const reader = resp.body.getReader()
-const decoder = new TextDecoder()
-let buf = ''
-while (true) {
-  const { done, value } = await reader.read()
-  if (done) return
-  buf += decoder.decode(value, { stream: true })
-  const parts = buf.split('\n')
-  buf = parts.pop() ?? ''
-  for (const raw of parts) {
-    const line = raw.replace(/\r$/, '')
-    if (!line.startsWith('data:')) continue
-    const payload = line.slice(5).trim()
-    try { onEvent(JSON.parse(payload)) } catch { /* 单条失败跳过 */ }
-  }
-}
+```ts
+buf += decoder.decode(value, { stream: true })  // TextDecoder 流模式：多字节字符跨 chunk 不碎
+const parts = buf.split('\n')                    // 兼容 \r\n：残留的 \r 解析时丢弃
+buf = parts.pop() ?? ''                          // 末段不完整，留到下一 chunk
+// 只取 data: 行；单条 JSON.parse 失败 → 跳过，不中断流
 ```
 
-四个工程要点：
+要点：① `{stream:true}` 让半个 UTF-8 字符留在解码器内部状态里；
+② 缓冲残留处理分包（TCP 任意切）；③ 坏事件隔离（一条脏数据不毁整条流）；
+④ `AbortSignal` 贯通取消。
 
-1. **跨 chunk 多字节**：`TextDecoder({stream:true})` 把 UTF-8 多字节字符拆到相邻 chunk 时不会乱码；
-2. **`\r\n` 兼容**：按 `\n` 切，残留的 `\r` 在解析时丢弃；
-3. **单条失败不中断**：一条坏 JSON 只跳过，不断流；
-4. **只认 `data:` 前缀**：本项目后端只用 `data:` 行，不用 `event:`/`id:` 字段。
+## 三、原理：断流续订三件套（`streamResearchWithReconnect`）
 
----
+研究任务分钟级运行，SSE 会被系统休眠/网络抖动断开。服务端的续传语义是
+「重订后全量重放」，前端必须配套三件事（`sse.ts:134-208`）：
 
-# 第二部分 原理剖析
+1. **状态回查**：流关闭后先 `GET /research/{id}`——已是终态就直接收官
+   （把状态端点当「最终事实」），非终态才重订阅；
+2. **重放去重**：`(stage, timestamp)` 集合判重，重放的事件不重复渲染；
+3. **退避 + 上限**：指数退避 500ms → 15s（±20% 抖动，防多客户端共振），
+   **最多 12 次**——超过即抛错。无限静默重连会把「服务端已死」伪装成
+   「还在努力」，错误必须能浮出水面。
 
-## 三、为什么用原生 fetch 而不是 EventSource
+## 四、HTTP 客户端（`client.ts`）
 
-| 维度 | 自研 `runSSE`（fetch） | 原生 `EventSource` |
-| --- | --- | --- |
-| 请求方法 | ✅ POST（`/agent/run` 需要 body） | ❌ 仅 GET |
-| 自定义请求头 | ✅ 可带 `Authorization` | ❌ 仅 URL 参数 |
-| 取消 | ✅ `AbortController` | ❌ 需 `close()` |
-| 自动重连 | ❌ 需手写 | ✅ 内置（但无业务游标） |
-| 流式读取 | ✅ `ReadableStream` | ❌ 事件粒度 |
+- **超时分级**：默认 15s；`/agent/run/sync` 180s（对齐后端 `exec_timeout`）；
+  `/rag/ingest` 300s（批量 PDF 入库慢）；流式端点 `timeoutMs=0`（由 `done` 自然终止）；
+- **错误归一**：`ApiError(status, 文案, path)`，按状态码分类文案
+  （503 区分「未配置 Key」与「服务异常」）；202（任务未完成）与 204（删成功无 body）
+  特判；
+- **取消**：内部 AbortController + 外部 signal 桥接。
 
-SSE 的本质是「一个永不立刻结束的 HTTP 响应」。`EventSource` 把这个响应封装成事件流，但它**只能发 GET 且不能带 body**——而 `/agent/run` 需要 POST 一个 `RunRequest`（含 prompt、skills、mode 等）。EventSource 做不到，只能自研。
+## 五、状态与渲染
 
-**根本结论**：当流式接口需要「带请求体的 POST」时，EventSource 就不适用，必须退回 `fetch + ReadableStream` 手动解析 SSE 帧格式。
+- `session` / `rounds` store 把事件流重组为「轮次 → 步骤 → 消息」的展示模型
+  （RoundGroup / ProcessSteps / RunTimeline 组件消费）；
+- Markdown 渲染：markdown-it + **DOMPurify**（`FORBID_TAGS:['style','iframe','form']`）
+  + highlight.js；
+- 引用统一：RAG / Web Research 两路引用经 `citations.ts` 适配为同一 `Citation`
+  类型，ProcessSteps 只渲染这一种。
 
-## 四、SSE 帧解析的状态机本质
+## 六、业界对照
 
-SSE 协议规定事件以「空行」分隔，每条事件由若干 `field: value` 行组成。本项目只用 `data:` 字段，且每个事件是**一行 JSON**（`data: {...}\n\n`），因此解析器可以简化为：
+| 方案 | 能力 | 本项目为何不用 |
+|---|---|---|
+| EventSource | GET + 自动重连 | 不能 POST；重连语义不符 |
+| fetch-event-source | POST + 解析 | 多一个依赖，自研 30 行已覆盖且可控（去重/退避是业务语义） |
+| WebSocket | 双向 | 无双向需求；多一层协议与鉴权面 |
 
-```
-按 \n 切分 → 滤出以 "data:" 开头的行 → slice(5) 去掉前缀 → trim → JSON.parse
-```
+## 参考
 
-**坑点**：网络层按 TCP 段交付，一个 SSE 事件可能被拆到多个 chunk，或多个事件挤在一个 chunk。解析器必须：
-- 用 `buf` 暂存**最后一个不完整行**（`parts.pop()`），等下一个 chunk 拼接；
-- 不假设 chunk 边界 = 事件边界。
-
-这是所有流式解析（SSE / NDJSON / gRPC-streaming）的通用问题：**传输层的包边界 ≠ 应用层的消息边界**。
-
-## 五、断流恢复：从「连接保活」到「业务游标」
-
-SSE 长连接（研究进度最长 1800 s）必然断流。恢复有两层思路：
-
-| 思路 | 机制 | 局限 |
-| --- | --- | --- |
-| **传输层保活** | TCP keepalive / WebSocket ping | 只能检测连接死，不能恢复丢失的事件 |
-| **业务层游标** | 给每个事件一个序号（`seq` 或 `stage\|timestamp`），断流后从「上次收到的序号」继续 | 需要服务端支持续订 |
-
-本项目两条链路各用一种游标：
-
-- **运行事件回放**：`run_events` 表给每个事件分配递增 `seq`，前端断流后用 `GET /runs/{id}/stream?after_seq=N` 续订（**精确续订，不重放**）；
-- **研究进度**：断流后重订阅会**全量重放**，前端用 `stage|timestamp` 去重键过滤重复（**重放 + 去重**）。
-
-前者适合事件有序且有持久序号的场景；后者适合事件天然按阶段分组、重放成本低的场景。
-
-## 六、为什么「断流后先回查状态再决定是否重订阅」
-
-流结束有两种含义：**任务真的结束了**，或**连接断了但任务还在跑**。两者必须区分，否则会出现「任务还在跑但前端已停」的假死。
-
-`streamResearchWithReconnect()` 的处理：流关闭后先 `GET /research/{id}` 查真实状态，只有仍是 `running` 才重订阅；若已 `completed/failed` 则合成一个 `final` 事件收尾。**这是把「传输层事件」与「业务层状态」解耦**——流的存活不代表任务的存活。
-
----
-
-# 第三部分 业界做法对照
-
-| 方案 | 代表 | 与本项目的差异 |
-| --- | --- | --- |
-| 原生 EventSource | 浏览器内置 | 仅 GET、无 body、自动重连但无业务游标 |
-| `@microsoft/fetch-event-source` | Azure | 支持 POST + header + AbortController，但不处理跨 chunk 多字节截断的边界细节 |
-| Socket.IO | — | 带自动重连与房间，但引入自定义协议与客户端库 |
-| WebSocket | 原生 | 全双工；本项目只需服务端→客户端单向，SSE 更轻 |
-| gRPC-web 流式 | gRPC | 强类型 + 双向，但需代理（envoy）与 code gen |
-
-**选型结论**：本项目的「POST + SSE + 业务游标」组合，是在「需要带请求体 + 需要断流恢复 + 只需单向」三个约束下的最小解。
-
----
-
-# 第四部分 操作要点
-
-| 要点 | 说明 |
-| --- | --- |
-| 新增 SSE 端点 | 后端响应用 `data: {json}\n\n`，带 `Cache-Control: no-cache` + `X-Accel-Buffering: no`；前端复用 `runSSE` |
-| 长连接续订 | 事件必须带可去重的序号（`seq` 或 `stage\|ts`）；断流后先回查状态再重订阅 |
-| Nginx 反代 | 必须 `proxy_buffering off` + `proxy_read_timeout` 调大，否则流式被缓冲 |
-| 调试 | 浏览器 console 设 `window.__sseDebug = true` 看每条事件 |
-| 取消 | 所有 SSE 调用透传 `AbortSignal`，组件卸载时 `abort()` |
-
----
-
-## 附录 A：参考资料
-
-| # | 主题 | 链接 |
-| --- | --- | --- |
-| 1 | MDN EventSource | https://developer.mozilla.org/zh-CN/docs/Web/API/EventSource |
-| 2 | MDN ReadableStream | https://developer.mozilla.org/zh-CN/docs/Web/API/ReadableStream |
-| 3 | MDN AbortController | https://developer.mozilla.org/zh-CN/docs/Web/API/AbortController |
-| 4 | Vue 3 官方 | https://cn.vuejs.org/ |
-| 5 | fetch-event-source（参考） | https://github.com/Azure/fetch-event-source |
-| 6 | 本项目分析文档 | `analysis/06_前端架构与接口契约.md`、`analysis/03_Agent执行引擎与事件协议.md` §5 |
+- `../analysis/00` §7 R-12（MDN ReadableStream/AbortController）
+- `../analysis/06`（前端架构事实）

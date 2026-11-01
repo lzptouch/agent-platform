@@ -46,7 +46,7 @@ node scripts/build-desktop.mjs --platform mac --arch arm64 --publish never
 | 4 | 构建 Electron 壳 | `apps/desktop/dist-main/` |
 | 5 | electron-builder | `apps/desktop/release/`（dmg / zip / AppImage / nsis） |
 | 6 | 体积预算 | 见 §4 |
-| 7 | 打包态自检 | `node scripts/verify-desktop-package.mjs` |
+| 7 | 打包态自检 | `node tests/scripts/verify-desktop-package.mjs` |
 
 ### 2.2 ⚠️ 原生模块的**双 ABI**（必做）
 
@@ -109,7 +109,7 @@ Agent Desktop.app/Contents/Resources/
 ## [5] 打包态自检
 
 ```bash
-node scripts/verify-desktop-package.mjs
+node tests/scripts/verify-desktop-package.mjs
 ```
 
 自检项：
@@ -156,7 +156,7 @@ node scripts/verify-desktop-package.mjs
 
 | 现象 | 原因 | 处置 |
 | --- | --- | --- |
-| 安装包启动后**秒退**，无日志 | 入口判定失败（路径含**空格** → `import.meta.url` 编码 `%20`） | 已修复（`main.ts` 的 `isEntryPoint`），回归用例见 `apps/server/tests/packaging.test.ts` |
+| 安装包启动后**秒退**，无日志 | 入口判定失败（路径含**空格** → `import.meta.url` 编码 `%20`） | 已修复（`main.ts` 的 `isEntryPoint`），回归用例见 `tests/unit/server/packaging.test.ts` |
 | sidecar 报 `ERR_DLOPEN_FAILED` | 原生模块 ABI 不匹配 | `node scripts/rebuild-native.mjs` 后重新打包 |
 | 启动报「表已存在」 | 旧库升级路径未走「标记基线 + 补列」 | 已修复；确认 `__migrations` 表存在且基线已标记 |
 | `[tray] 托盘图标缺失` | `Resources/icon.icns` 未打进包 | 补 `build/icon.icns` 后重新打包 |
@@ -169,7 +169,7 @@ node scripts/verify-desktop-package.mjs
 | 文档 | 内容 |
 | --- | --- |
 | `doc/design/16-桌面一体化改造方案与实施计划.md` | 改造方案与实施计划（依据） |
-| `doc/test-runs/P9-final/README.md` | 改造后全量回归与验收报告 |
-| `doc/test-runs/P0-baseline/README.md` | 改造前全量基线 |
+| `tests/docs/test-runs/P9-final/README.md` | 改造后全量回归与验收报告 |
+| `tests/docs/test-runs/P0-baseline/README.md` | 改造前全量基线 |
 | `baseline/features.csv` | 功能基线清单（185 项） |
 | `contract/` | 契约冻结产物（98 路径 / 126 操作 / 26 事件 / 22 表） |

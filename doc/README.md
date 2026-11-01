@@ -8,9 +8,9 @@
 > **📌 2026-11-01 状态**：**单运行时改造已完成**（design/16）—— 后端由 Python 重写为 TypeScript、
 > 目录迁入 `apps/`、**Web / Docker 形态退场**、Electron 壳改用 `utilityProcess.fork()` 承载 TS sidecar。
 > **两次全量测试结果基本不变**（后端 692 → 692，前端 102 → 102，差异台账 defect 0）。
-> 实测证据：[`test-runs/P9-final/`](./test-runs/P9-final/)。
+> 实测证据：[`tests/docs/test-runs/P9-final/`](../tests/docs/test-runs/P9-final/)。
 >
-> **文档集范围**：`doc/`（本目录）+ `deploy/README.md`（发布手册）+ `test-runs/`（测试证据链）。
+> **文档集范围**：`doc/`（本目录）+ `deploy/README.md`（发布手册）+ `tests/docs/`（测试文档：testing/00 测试计划 · test-runs/ 证据链 · traceability.md，2026-11-02 起统一归拢到 `tests/`）。
 >
 > **目标形态的源头**：WorkBuddy 通用智能工作台 / 一体化内嵌架构的产品定义。
 > 它的实现规格（§11）、能力缺口（§2.7）与交互清单（§8）已整理进
@@ -38,10 +38,11 @@
 ```
 doc/
 ├─ analysis/   ① 当前代码的事实 + 还剩什么缺陷      （读代码的人看这里）
-├─ design/     ② 项目总目标 + 已实现标记 + 差距清单  （做决策 / 排期的人看这里）
-├─ plan/       ③ 接下来要做的：范围 · 步骤 · 验收    （执行的人看这里）
+├─ design/     ② 项目总目标 + 已实现标记 + 差距清单 + 批次计划附录（做决策 / 排期 / 执行的人看这里）
+└─ knowledge/  ⑤ 通用原理（为什么这么设计）          （学习的人看这里）
+
+tests/docs/    （2026-11-02 起，测试文档统一归拢到 tests/）
 ├─ testing/    ④ 可执行测试计划（用例 · 门禁 · 工件） （测试的人看这里）
-├─ knowledge/  ⑤ 通用原理（为什么这么设计）          （学习的人看这里）
 └─ test-runs/  ⑥ 测试证据链（基线 / 回归 / 截图）     （验收的人看这里）
 ```
 
@@ -51,21 +52,25 @@ doc/
 > ③ **2026-10-30 扩充**——补齐条目级总台账、依赖矩阵、工作量估算（64 → 82 项）；
 > ④ **2026-10-30 代码级审计后再扩充**——新增 18 项来自「`design/01` 中被误判为 ✅ 的 20 条需求」的逐条复核。
 >
-> **⑤ 2026-10-31 全面复审后新建第七批**——[`plan/07`](./plan/07-全面代码审计整改计划.md)
-> **W0~W6（58 项）**，来自 [`analysis/18`](./analysis/18_全面代码审计报告.md)（189 条缺陷）。
-> **⑥ 2026-10-31 二轮复审后新建第八批**——[`plan/08`](./plan/08-二次全面审计整改计划.md)
-> **W7~W12（67 项）**，来自 [`analysis/19`](./analysis/19_二次全面审计报告.md)（98 条缺陷）。
+> **⑤ 2026-10-31 全面复审后新建第七批**——`plan/07`（现 [`design/09`](./design/09-差距矩阵与整改清单.md) 附录）
+> **W0~W6（58 项）**，来自当时的全面代码审计报告（189 条缺陷；审计快照已随 2026-11-01
+> 文档重组从 `analysis/` 移除，编号结论沉淀在 [`analysis/12`](./analysis/12_能力覆盖与风险台账.md) §2）。
+> **⑥ 2026-10-31 二轮复审后新建第八批**——`plan/08`（现 [`design/09`](./design/09-差距矩阵与整改清单.md) 附录）
+> **W7~W12（67 项）**，来自当时的二次全面审计报告（98 条缺陷，同上）。
 >
 > **⑦ 2026-11-01 单运行时改造**——见 [`design/16`](./design/16-桌面一体化改造方案与实施计划.md)，
-> 交付记录进 [`design/12`](./design/12-阶段交付台账.md) §〇 与 [`test-runs/P9-final/`](./test-runs/P9-final/)。
+> 交付记录进 [`design/12`](./design/12-阶段交付台账.md) §〇 与 [`tests/docs/test-runs/P9-final/`](../tests/docs/test-runs/P9-final/)。
+>
+> **⑧ 2026-11-01 并入 design 后删除目录**——`doc/plan/` 全部 9 篇按主题并入
+> [`design/`](./design/) 各篇「历史记录」附录（批次总台账在 `design/09` 附录），原目录删除。
 
-**分工纪律**（写在 `analysis/00` §4 与 `plan/README`）：
+**分工纪律**（写在 `analysis/00` §4 与 `design/09` 附录「批次总台账」）：
 
 1. `analysis` 只写**代码里存在的实现**与**仍存在的缺陷**，不写计划；
 2. `design` 是**目标形态**，其中「状态」列按当前代码标注 ✅已实现 / ⏳部分 / ⛔未实现；
-3. **还差什么**统一进 `design/09`（差距矩阵）+ `plan/`（批次）；`analysis/12` 只给缺陷台账的**事实描述**；
-4. `testing` 是**可执行测试计划**，是 `plan` 各批次验收用例的来源；
-5. `test-runs` 是**证据链**（改造前基线 + 改造后回归 + 截图 + 差异台账）；
+3. **还差什么**统一进 `design/09`（差距矩阵 + 批次附录）；`analysis/12` 只给缺陷台账的**事实描述**；
+4. `tests/docs/testing` 是**可执行测试计划**，是各批次（`design/` 附录）验收用例的来源；
+5. `tests/docs/test-runs` 是**证据链**（改造前基线 + 改造后回归 + 截图 + 差异台账）；
 6. 数字口径**唯一来源** = `analysis/00` §5 口径常量表（C01~C32）。
 
 ---
@@ -86,16 +91,20 @@ doc/
 | 07 | [DeepResearch 链路](./analysis/07_DeepResearch链路.md) | Orchestrator-Workers + OODA + 评分迭代怎么协同？ |
 | 08 | [调度与运行账本](./analysis/08_调度与运行账本.md) | 定时任务如何防重、幂等、退避？运行记录如何回放？ |
 | 09 | [部署形态与端口矩阵](./analysis/09_部署形态与端口矩阵.md) | **三种**运行形态怎么选？端口/配置项/数据目录各是什么？（★ 2026-11-01 重写） |
-| 10 | [可观测体系现状与方案](./analysis/10_可观测体系现状与方案.md) | 现在能观测到什么？缺什么？ |
-| 11 | [高并发现状与瓶颈](./analysis/11_高并发现状与瓶颈.md) | 真实并发模型是什么？瓶颈在哪？ |
-| 12 | [能力覆盖与风险台账](./analysis/12_能力覆盖与风险台账.md) | 每个能力实现到什么程度？**还剩哪些缺陷**？ |
-| 13 | 🕘 [桌面端现状盘点](./analysis/13_桌面端现状盘点与需求论证.md) | 桌面壳现在长什么样？（**2026-10-29 的论证快照**，改造前的现状） |
-| 14 | [权限引擎与安全边界](./analysis/14_权限引擎与安全边界.md) | 三态权限怎么判定？审批怎么走？沙箱到底有没有？审计落在哪？ |
-| 15 | [工作区产物与变更回退](./analysis/15_工作区产物与变更回退.md) | 工作空间怎么建？变更怎么记？产物怎么登记？回退怎么做？ |
-| 16 | [上下文经济性与成本核算](./analysis/16_上下文经济性与成本核算.md) | 上下文怎么算账？压缩/裁剪阈值？记忆怎么注入？成本怎么记怎么查？ |
-| 17 | [扩展层：角色 / 插件 / 黑板](./analysis/17_扩展层角色插件与黑板.md) | 三个新扩展模块各自的能力边界？哪些只是 API 层生效？ |
-| 18 | 🕘 [全面代码审计报告](./analysis/18_全面代码审计报告.md) | **2026-10-31 全量复审**：189 条缺陷 + 22 条「声明与实现不符」；5 个根因与 8 类测试盲区 |
-| 19 | 🕘 [二次全面审计报告](./analysis/19_二次全面审计报告.md) | **2026-10-31 二轮复审**：98 条缺陷 + 14 条「声明与实现不符」；3 个新根因 |
+| 10 | [可观测性实现](./analysis/10_可观测性实现.md) | 日志 / 指标 / 计量 / 事件总线各自能观测到什么？（★ 2026-11-01 重写：只留现状） |
+| 11 | [并发模型与资源边界](./analysis/11_并发模型与资源边界.md) | 槽位信号量、SQLite 单写者、子进程限额的真实模型（★ 2026-11-01 重写） |
+| 12 | [能力覆盖与风险台账](./analysis/12_能力覆盖与风险台账.md) | 每个能力实现到什么程度？缺陷台账（冻结）与安全专项 |
+| 13 | [桌面壳与进程编排](./analysis/13_桌面壳与进程编排.md) | Electron 壳如何拉起/监护/回收 TS sidecar？握手与引导怎么走？（★ 2026-11-01 新篇，取代旧的改造前快照） |
+| 14 | [权限引擎与安全边界](./analysis/14_权限引擎与安全边界.md) | 三态权限怎么判定？审批怎么走？当前真实的安全边界是哪几层？ |
+| 15 | [工作区产物与变更回退](./analysis/15_工作区产物与变更回退.md) | 工作空间怎么建？产物怎么登记？变更回退的真实状态？ |
+| 16 | [上下文经济性与成本核算](./analysis/16_上下文经济性与成本核算.md) | 历史怎么裁剪？token 怎么估算？成本怎么记怎么查？记忆接线状态？ |
+| 17 | [扩展层：角色 / 插件 / 黑板](./analysis/17_扩展层角色插件与黑板.md) | 四个扩展模块各自的能力边界与接线状态？ |
+
+> **2026-11-01 重组**：analysis/ 只保留「功能与执行流程分析」。
+> 原 `18_全面代码审计报告`、`19_二次全面审计报告`（2026-10-31 两次审计快照）与
+> 原 `13_桌面端现状盘点与需求论证`（改造前快照）已**删除**——审计结论沉淀在
+> `analysis/12` §2（冻结台账）与 `plan/07`、`plan/08`；`plan/` 与 `design/01` 中对
+> 这两篇的引用为历史记录，不再可点。
 
 ### ② `doc/design/` —— 总目标、**已实现标记**与差距清单
 
@@ -119,48 +128,51 @@ doc/
 | 15 | [目标形态与实现状态](./design/15-目标形态与实现状态.md) | 目标形态逐条落点与状态（★ **附二 = 2026-11-01 复核**） |
 | 16 | [**桌面一体化改造方案与实施计划**](./design/16-桌面一体化改造方案与实施计划.md) | ★ **已实施完成**（2026-11-01）：后端 TS 重写 · 形态退场 · 壳改 `utilityProcess` · P0~P8 WBS · 三项交付纪律 |
 
-### ③ `doc/plan/` —— 接下来要**继续完成并测试**的功能（8 篇）
+### ③ 批次计划（原 `doc/plan/`，2026-11-01 并入 `design/` 后删除原目录）
 
-| # | 批次 | 主题 | 条目数 | 优先级 |
-|---|---|---|---|---|
-| 00 | [README](./plan/README.md) | 批次索引 · 条目级总台账 · 依赖矩阵 · 工作量估算 · 风险登记 · DoD · 执行看板 | — | — |
-| 01 | [正确性与安全边界](./plan/01-正确性与安全边界.md) | 6 个 P0 缺陷 + 2 个控制面断链 | 9 | **P0** |
-| 02 | [能力接线与扩展落地](./plan/02-能力接线与扩展落地.md) | 13 个未接线模块的「**接线 or 删除**」决议 | 16 | **P1** |
-| 03 | [调度、上下文与数据一致性](./plan/03-调度上下文与数据一致性.md) | 调度语义 + 上下文预算 + 数据约束 | 13 | **P1** |
-| 04 | [前端契约与可观测补齐](./plan/04-前端契约与可观测补齐.md) | 前后端契约零差异 + 指标口径 + 前端可消费性 | 9 | **P2** |
-| 05 | [测试体系与 CI 门禁](./plan/05-测试体系与CI门禁.md) | 结果可消费 + 分层 marker + 7 层 CI + 平台覆盖 | 9 | **P1** |
-| 06 | [发布形态与规模化](./plan/06-发布形态与规模化.md) | 体积/签名/多副本 + 明确不做的能力 | 6 | **P2** |
-| 07 | 🕘 [全面代码审计整改计划](./plan/07-全面代码审计整改计划.md) | 2026-10-31 复审整改：W0 根因修复 → W6 死代码清理 | 58 | **P0** |
-| 08 | 🕘 [二次全面审计整改计划](./plan/08-二次全面审计整改计划.md) | 2026-10-31 二轮复审整改：W7 安全与停摆 → W12 文档 | 67 | **P0** |
+> 批次内容以「历史记录」附录形式并入相应设计篇，**批次总台账**在
+> [`design/09` 附录](./design/09-差距矩阵与整改清单.md)（原 `plan/README.md`：批次索引 · 条目级总台账 · 依赖矩阵 · 工作量估算 · 风险登记 · DoD · 执行看板）。
 
-### ④ `doc/testing/` —— 可执行测试计划（1 篇）
+| # | 批次 | 主题 | 现位置 |
+|---|---|---|---|
+| 01 | 正确性与安全边界 | 6 个 P0 缺陷 + 2 个控制面断链 | [`design/04`](./design/04-本地数据与安全边界设计.md) 附录 |
+| 02 | 能力接线与扩展落地 | 13 个未接线模块的「**接线 or 删除**」决议 | [`design/13`](./design/13-能力演进与实现对照.md) 附录 |
+| 03 | 调度、上下文与数据一致性 | 调度语义 + 上下文预算 + 数据约束 | [`design/05`](./design/05-数据模型与API设计.md) 附录 |
+| 04 | 前端契约与可观测补齐 | 前后端契约零差异 + 指标口径 + 前端可消费性 | [`design/06`](./design/06-前端界面设计.md) 附录 |
+| 05 | 测试体系与 CI 门禁 | 结果可消费 + 分层 marker + 7 层 CI + 平台覆盖 | [`design/10`](./design/10-测试与验收策略.md) 附录 |
+| 06 | 发布形态与规模化 | 体积/签名/多副本 + 明确不做的能力 | [`design/14`](./design/14-测试与发布策略.md) 附录 |
+| 07 | 🕘 全面代码审计整改计划 | 2026-10-31 复审整改：W0 根因修复 → W6 死代码清理 | [`design/09`](./design/09-差距矩阵与整改清单.md) 附录 |
+| 08 | 🕘 二次全面审计整改计划 | 2026-10-31 二轮复审整改：W7 安全与停摆 → W12 文档 | [`design/09`](./design/09-差距矩阵与整改清单.md) 附录 |
+
+### ④ `tests/docs/testing/` —— 可执行测试计划（1 篇）
 
 | # | 文档 | 核心回答 |
 |---|------|----------|
-| 00 | [全面测试计划](./testing/00-全面测试计划.md) | ★ **§0.1 = 2026-11-01 现行口径**（单运行时 + 六道闸门 + 实测结果） |
+| 00 | [全面测试计划](../tests/docs/testing/00-全面测试计划.md) | ★ **§0.1 = 2026-11-01 现行口径**（单运行时 + 六道闸门 + 实测结果） |
 
 ### ⑤ `doc/knowledge/` —— 通用原理剖析
 
 | # | 文档 | 核心回答 |
 |---|------|----------|
-| 00 | [README.md](./knowledge/00_README.md) | 项目独有技术 + 通用原理 + 前端专题 双索引 |
-| 01 | [Skill 注册表与四级 Skill 设计](./knowledge/01_Skill注册表与四级Skill设计.md) | SkillManager + 渐进式披露 + 6 Skill |
-| 02 | [MCP 协议原理与 stdio 实现](./knowledge/02_MCP协议原理与stdio实现.md) | MCPManager + 3 stdio Server + 工具反射 |
-| 03 | [Orchestrator-Workers 多智能体架构](./knowledge/03_Orchestrator-Workers多智能体架构.md) | Deep Research 5 阶段 + OODA + 评分 |
-| 04 | [质量评分迭代与任务持久化](./knowledge/04_质量评分迭代与任务持久化.md) | 评分机制 + 持久化 |
-| 05 | [Milvus Lite 本地化与 BM25 混合检索](./knowledge/05_MilvusLite本地化与BM25混合检索.md) | ⚠️ **原理仍有效，但实现已换**：Milvus Lite → 本地 SQLite 向量层（`domain/rag/store.ts`） |
-| 06 | [Vue 3 前端与 SSE 消费](./knowledge/06_Vue3前端与SSE消费.md) | Vue 3 + TS 前端架构 + SSE 消费原理 |
-| 07 | [Langfuse 集成与 LLM 追踪](./knowledge/07_Langfuse集成与LLM追踪.md) | OTel 接入 + Prompt 版本化 + 评估（**建议性文档，代码未接入**） |
-| 08 | [技术选型与开源参考](./knowledge/08-技术选型与开源参考.md) | 依赖与开源方案 |
+| 00 | [README.md](./knowledge/00_README.md) | 索引：每篇的原理主题 + 代码锚点 |
+| 01 | [Skill 注册表与渐进式披露](./knowledge/01_Skill注册表与渐进式披露.md) | SkillManager + 三级披露 + 6 内置 Skill |
+| 02 | [MCP 协议原理与 stdio 实现](./knowledge/02_MCP协议原理与stdio实现.md) | MCPManager + 3 内置 Server + 两级配置 + 外部 Server 接线现状 |
+| 03 | [Orchestrator-Workers 多智能体架构](./knowledge/03_Orchestrator-Workers多智能体架构.md) | 模式原理 + 当前阶段骨架的落点 |
+| 04 | [质量评分迭代与任务持久化](./knowledge/04_质量评分迭代与任务持久化.md) | 评分迭代原理 + tasks.json checkpoint 实现 |
+| 05 | [本地向量检索与 BM25 混合检索](./knowledge/05_本地向量检索与BM25混合检索.md) | SQLite 向量层 + 内存 BM25 + 加权融合（★ 2026-11-01 重写：向量层已换本地实现） |
+| 06 | [Vue 3 前端与 SSE 消费](./knowledge/06_Vue3前端与SSE消费.md) | fetch 流式解析 + 断流续订三件套 |
+| 07 | [Electron 进程模型与 utilityProcess 编排](./knowledge/07_Electron进程模型与utilityProcess编排.md) | 多进程模型 + 握手/探活/熔断/孤儿回收（★ 2026-11-01 新篇，取代 Langfuse 建议稿——代码从未接入） |
+| 08 | [技术选型与开源参考](./knowledge/08-技术选型与开源参考.md) | 当前依赖清单与选型理由 |
 | 09 | [代码规范](./knowledge/09_代码规范.md) | 仓库级编码约定 |
+| 10 | [双 ABI 原生模块与 SQLite 数据层](./knowledge/10_双ABI原生模块与数据层.md) | better-sqlite3 双 ABI 加载 + WAL + 写锁退避 |
 
-### ⑥ `doc/test-runs/` —— 测试证据链
+### ⑥ `tests/docs/test-runs/` —— 测试证据链
 
 | # | 目录 | 内容 |
 |---|---|---|
-| 00 | [README.md](./test-runs/README.md) | 证据链总览与规范 |
-| P0 | [P0-baseline/](./test-runs/P0-baseline/) | **改造前**全量基线（695 例逐条 + 契约冻结 + 185 项功能基线） |
-| P9 | [P9-final/](./test-runs/P9-final/) | **改造后**全量回归 + 等价性结论 + **大模型端到端验收** + 21 张实机截图 |
+| 00 | [README.md](../tests/docs/test-runs/README.md) | 证据链总览与规范 |
+| P0 | [P0-baseline/](../tests/docs/test-runs/P0-baseline/) | **改造前**全量基线（695 例逐条 + 契约冻结 + 185 项功能基线） |
+| P9 | [P9-final/](../tests/docs/test-runs/P9-final/) | **改造后**全量回归 + 等价性结论 + **大模型端到端验收** + 21 张实机截图 |
 
 ---
 
@@ -171,12 +183,12 @@ doc/
 | **新人（1~2 天）** | `README.md`（根）→ `analysis/00` → `analysis/01` → `analysis/02` → `analysis/03` |
 | **后端开发** | `analysis/03` → `analysis/05` → `analysis/04` → `analysis/08` → `analysis/14`~`17` |
 | **前端开发** | `analysis/06` → `analysis/05` → `analysis/03` §5 → `analysis/15` |
-| **运维 / 交付** | `deploy/README.md`（发布手册）→ `analysis/09` → `design/14` → `analysis/08` |
-| **安全评审** | `analysis/14` → `analysis/12` §三（安全专项）→ `analysis/15`（回退/另存的越权面） |
-| **排期 / 评估** | `analysis/12`（缺陷台账）→ `design/09`（差距矩阵）→ `design/12`（阶段交付台账）→ `plan/README`（批次） |
-| **执行者** | `plan/README` → 对应批次文件 → `testing/00` §4.9（验收用例） |
-| **桌面端** | `design/03` §9 → `analysis/13` → `design/12` §〇 → `design/16` → `test-runs/P9-final/` |
-| **验收 / 交付评审** | `test-runs/P9-final/README.md` → `test-runs/P9-final/E2E-LLM-验收报告.md` → `doc/test-runs/P9-final/diffs.csv` |
+| **运维 / 交付** | `deploy/README.md`（发布手册）→ `analysis/09` → `analysis/10` → `analysis/08` |
+| **安全评审** | `analysis/14` → `analysis/13` §4 → `analysis/12` §三（安全专项）→ `analysis/15` |
+| **排期 / 评估** | `analysis/12`（覆盖矩阵 + 缺陷台账）→ `design/09`（差距矩阵）→ `design/12`（阶段交付台账）→ `design/09` 附录（批次台账） |
+| **执行者** | `design/09` 附录「批次总台账」→ 对应批次（`design/` 各篇附录）→ `tests/docs/testing/00` §4.9（验收用例） |
+| **桌面端** | `analysis/13`（壳与进程编排）→ `design/03` §9 → `design/12` §〇 → `design/16` → `tests/docs/test-runs/P9-final/` |
+| **验收 / 交付评审** | `tests/docs/test-runs/P9-final/README.md` → `tests/docs/test-runs/P9-final/E2E-LLM-验收报告.md` → `tests/docs/test-runs/P9-final/diffs.csv` |
 
 ---
 
@@ -184,23 +196,23 @@ doc/
 
 | 校验 | 入口 |
 |---|---|
-| **文档一致性**（交叉引用 / 编号 / 目录） | `python3 scripts/check_doc_consistency.py` |
-| **文档数字**（与实测报告一致） | `python3 scripts/check_doc_numbers.py`（真值取 `doc/test-runs/*/raw/pytest-report.json`） |
-| **需求追溯** | `python3 scripts/check_traceability.py`（92/92 已实现需求有用例覆盖） |
-| **文档路径**（不得引用已删除的实现路径） | `python3 scripts/check_doc_paths.py` |
-| **前后端字段一致** | `python3 scripts/check_frontend_shape.py` |
-| **与改造前（Python）响应键一致** | `node scripts/dump_response_keys.mjs` + `python3 scripts/check_python_parity.py` |
-| **契约闸门 1~4** | `cd apps/server && npx vitest run tests/contract.test.ts`（+ `db` / `domain` / `packaging` / `response-shape`） |
-| 端点表 ↔ OpenAPI 一致性 | `analysis/05` §5「核对方式」 |
-| 文件:行号引用有效性 | `analysis/00` §5「复核方式」列；`plan/README` §10 批量校验脚本 |
-| 批次 ↔ 差距条目覆盖 | `plan/README` §10「核对方式」 |
-| **需求 ↔ 缺口覆盖** | `plan/README` §10 第 3 条 |
+| **文档一致性**（交叉引用 / 编号 / 目录） | `python3 tests/scripts/check_doc_consistency.py` |
+| **文档数字**（与实测报告一致） | `python3 tests/scripts/check_doc_numbers.py`（真值取 `tests/docs/test-runs/*/raw/pytest-report.json`） |
+| **需求追溯** | `python3 tests/scripts/check_traceability.py`（92/92 已实现需求有用例覆盖） |
+| **文档路径**（不得引用已删除的实现路径） | `python3 tests/scripts/check_doc_paths.py` |
+| **前后端字段一致** | `python3 tests/scripts/check_frontend_shape.py` |
+| **与改造前（Python）响应键一致** | `node tests/scripts/dump_response_keys.mjs` + `python3 tests/scripts/check_python_parity.py` |
+| **契约闸门 1~4** | `cd apps/server && npx vitest run contract`（+ `db` / `domain` / `packaging` / `response-shape`；用例在 `tests/unit/server/`） |
+| 端点表 ↔ OpenAPI 一致性 | `analysis/05` 第三部分「核对方式」 |
+| 文件:行号引用有效性 | `analysis/00` §5「复核方式」列；`design/09` 附录「批次总台账」§10 批量校验脚本 |
+| 批次 ↔ 差距条目覆盖 | `design/09` 附录「批次总台账」§10「核对方式」 |
+| **需求 ↔ 缺口覆盖** | `design/09` 附录「批次总台账」§10 第 3 条 |
 | 未接线模块清单 | `analysis/12` §1.4 |
-| 测试覆盖缺口 | `testing/00` 附录 C 的 `coverageGaps` → `plan/05` |
+| 测试覆盖缺口 | `tests/docs/testing/00` 附录 C 的 `coverageGaps` → `design/10` 附录「05」 |
 | **需求级实现状态** | `design/01` §2~§9 的「实现状态」列 + §11 索引；与 `design/09` §4.2 交叉核对 |
 
 > **约定**：改代码后要同步 `analysis/00` 的常量表、`analysis/05` 的端点表、**`design/01` 的实现状态列**、`design/09` 的状态列；
-> 未完成项必须在 `design/09` 与 `plan/` 立项，并更新 `analysis/12` 的缺陷台账；
-> 新增/修改能力必须在 `testing/00` 有对应用例编号；
-> **改造类工作必须在 `design/12` §〇 留交付记录，并在 `test-runs/` 留证据链**。
-> **一条工作项完成的定义见 `plan/README` §七 DoD**（5 条同时满足才算完成）。
+> 未完成项必须在 `design/09` 与其批次附录立项，并更新 `analysis/12` 的缺陷台账；
+> 新增/修改能力必须在 `tests/docs/testing/00` 有对应用例编号；
+> **改造类工作必须在 `design/12` §〇 留交付记录，并在 `tests/docs/test-runs/` 留证据链**。
+> **一条工作项完成的定义见 `design/09` 附录「批次总台账」§七 DoD**（5 条同时满足才算完成）。

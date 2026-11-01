@@ -42,34 +42,34 @@ jobs:
         working-directory: apps/server
         run: npm ci --no-audit --no-fund
       - name: 文档一致性门禁
-        run: python3 scripts/check_doc_consistency.py
+        run: python3 tests/scripts/check_doc_consistency.py
       - name: 文档数字门禁
-        run: python3 scripts/check_doc_numbers.py
+        run: python3 tests/scripts/check_doc_numbers.py
       - name: 需求追溯门禁
-        run: python3 scripts/check_traceability.py
+        run: python3 tests/scripts/check_traceability.py
       - name: 文档路径门禁（不得引用已删除的实现路径）
-        run: python3 scripts/check_doc_paths.py
+        run: python3 tests/scripts/check_doc_paths.py
 
       # ---- 闸门 1/2/3：契约零差异 ----
       - name: 闸门 1 · OpenAPI 零差异（98 路径 / 126 操作）
         working-directory: apps/server
-        run: npx vitest run tests/contract.test.ts
+        run: npx vitest run contract
       - name: 闸门 2 · 事件零差异（26 事件 + 4 SSE）
         working-directory: apps/server
-        run: npx vitest run tests/domain.test.ts
+        run: npx vitest run domain
       - name: 闸门 3 · Schema 零差异（22 表 DDL）
         working-directory: apps/server
-        run: npx vitest run tests/db.test.ts
+        run: npx vitest run db
       - name: 闸门 3b · 打包态回归（入口判定 / 服务根 / 双 ABI）
         working-directory: apps/server
-        run: npx vitest run tests/packaging.test.ts
+        run: npx vitest run packaging
       - name: 闸门 3c · 响应**形状**零差异（数组型端点 + 桌面态字段）
         working-directory: apps/server
-        run: npx vitest run tests/response-shape.test.ts
+        run: npx vitest run response-shape
       - name: 闸门 3d · 与改造前（Python）响应键逐端点一致
         run: |
-          node scripts/dump_response_keys.mjs /tmp/ts-keys.json
-          python3 scripts/check_python_parity.py
+          node tests/scripts/dump_response_keys.mjs /tmp/ts-keys.json
+          python3 tests/scripts/check_python_parity.py
 
       # ---- 闸门 4：功能基线覆盖（D1 固化到 CI）----
       - name: 闸门 4 · 功能基线不许缩水
@@ -88,11 +88,11 @@ jobs:
               sys.exit(1)
           PY
       - name: 闸门 4 · 差异台账中 defect 必须为 0
-        if: exists('doc/test-runs/P9-final/diffs.csv')
+        if: exists('tests/docs/test-runs/P9-final/diffs.csv')
         run: |
           python3 - <<'PY'
           import csv, io, sys
-          rows = list(csv.DictReader(io.open('doc/test-runs/P9-final/diffs.csv', encoding='utf-8')))
+          rows = list(csv.DictReader(io.open('tests/docs/test-runs/P9-final/diffs.csv', encoding='utf-8')))
           defects = [r for r in rows if r.get('verdict') == 'defect']
           waived = [r for r in rows if r.get('verdict') == 'waived']
           for r in waived:
@@ -157,7 +157,7 @@ jobs:
             sleep 1
           done
           PORT=$(grep -o '"port":[0-9]*' /tmp/agent-ci.log | head -1 | cut -d: -f2)
-          AGENT_DESKTOP_TOKEN=ci-token node ../../scripts/ui/smoke.mjs "http://127.0.0.1:$PORT"
+          AGENT_DESKTOP_TOKEN=ci-token node ../../tests/scripts/ui/smoke.mjs "http://127.0.0.1:$PORT"
 
   # ------------------------------------------------------------------ L3
   llm-e2e:
@@ -228,7 +228,7 @@ jobs:
       - name: 打包桌面应用
         run: node scripts/build-desktop.mjs --platform linux --arch x64
       - name: 打包态自检
-        run: node scripts/verify-desktop-package.mjs
+        run: node tests/scripts/verify-desktop-package.mjs
       - name: 打包态 e2e
         working-directory: tests
         run: |
@@ -285,7 +285,7 @@ jobs:
           cd apps/desktop && npm ci --no-audit --no-fund && npm run build && cd ../..
           cd apps/server && npm ci --no-audit --no-fund && npm run build && cd ../..
       - name: 汇总全量结果
-        run: python3 scripts/collect_test_report.py
+        run: python3 tests/scripts/collect_test_report.py
       - name: 上传工件
         if: always()
         uses: actions/upload-artifact@v4
